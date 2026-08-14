@@ -1,8 +1,9 @@
 /**
- * MotionMesh official Node SDK benchmark (HOT-KEY).
+ * MotionMesh official Node SDK benchmark (DISTRIBUTED-IDENTITY).
  *
- * This benchmark uses a SINGLE API KEY to measure hot-key local caching, 
- * Redis caching, and single-user throughput behaviors.
+ * This benchmark randomly selects an API key from a pool of 100K valid identities
+ * on every request to measure authentication cache behavior, Redis load, and
+ * concurrent distributed RPS throughput.
  * The SDK constructor intentionally accepts ONLY the API key:
  *
  *   new MotionMeshClient(apiKey)
@@ -93,8 +94,7 @@ function loadAndValidateData() {
 }
 
 const data = loadAndValidateData();
-const apiKey = data.api_keys[0];
-const client = new MotionMeshClient(apiKey);
+const clients = data.api_keys.slice(0, 100000).map(key => new MotionMeshClient(key));
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -102,6 +102,7 @@ function sleep(ms) {
 
 async function runOperation() {
   const op = Math.random();
+  const client = clients[Math.floor(Math.random() * clients.length)];
 
   if (op < 0.4) {
     return client.videos.list({ limit: 10 });
@@ -127,7 +128,7 @@ async function runOperation() {
 
 async function runTier(targetRPS) {
   console.log(`\n==============================================`);
-  console.log(`Starting HOT-KEY SDK Benchmark Tier: ${targetRPS} RPS`);
+  console.log(`Starting DISTRIBUTED-IDENTITY SDK Benchmark Tier: ${targetRPS} RPS`);
   console.log(`==============================================`);
 
   const totalRequests = targetRPS * DURATION_SEC;
@@ -200,7 +201,7 @@ async function runTier(targetRPS) {
 
   const report = {
     timestamp: new Date().toISOString(),
-    benchmark_type: "official_sdk_hot_key",
+    benchmark_type: "official_sdk_distributed",
     client_type: CLIENT_TYPE,
     target_rps: targetRPS,
     duration_s: durationSec,
@@ -266,7 +267,7 @@ async function runTier(targetRPS) {
 
 async function main() {
   // Preflight uses the SDK itself; no URL is supplied.
-  await client.videos.list({ limit: 1 });
+  await clients[0].videos.list({ limit: 1 });
   console.log("SDK pre-flight OK.");
 
   for (const tier of TIERS) {

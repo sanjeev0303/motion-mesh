@@ -11,20 +11,20 @@ pip install motionmesh
 ## Quickstart
 
 ```python
-from motionmesh import Client
+from motionmesh import MotionMeshClient
 
 # Initialize the client
-client = Client(api_key="mot_live_...")
+client = MotionMeshClient(api_key="mot_live_...")
 
-# Upload and transcode a video
-video = client.videos.upload(
-    "input.mp4",
-    bucket_id="your-bucket-id"
+# Create a video record
+video = client.create_video(
+    filename="input.mp4",
+    size_bytes=1024576
 )
 
-# Get playback URL
-playback_url = client.videos.get_playback_url(video.id)
-print(playback_url)
+# List all videos
+videos = client.list_videos()
+print(videos)
 ```
 
 ## Documentation

@@ -87,7 +87,7 @@ variable "dns_domain_name" {
 variable "allowed_cors_origins" {
   description = "List of allowed CORS origins"
   type        = list(string)
-  default     = ["*"]
+  default     = ["https://app.motionmesh.co.in"]
 }
 
 

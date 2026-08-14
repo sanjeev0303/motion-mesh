@@ -35,6 +35,16 @@ if redis.call("SET", KEYS[1], "1", "NX", "EX", ARGV[1]) then
 end
 return 0
 `)
+
+	// Atomic Lua merge operation to ensure we only update the active buffer
+	// if the temporary timestamp is strictly greater than the active timestamp.
+	lastUsedMergeScript = redis.NewScript(`
+local ts = redis.call("HGET", KEYS[1], ARGV[1])
+if not ts or tonumber(ARGV[2]) > tonumber(ts) then
+    redis.call("HSET", KEYS[1], ARGV[1], ARGV[2])
+end
+return 1
+`)
 )
 
 func startLastUsedWorker(rdb *redis.Client) {
@@ -208,7 +218,7 @@ func FlushLastUsedLoop(ctx context.Context, rdb *redis.Client, repo AccountRepos
 }
 
 // mergeBackFailedBuffer writes the temporary buffer back into the active buffer
-// using HSETNX to avoid overwriting newer timestamps that arrived in the meantime.
+// using an atomic Lua script to ensure we take max(active[key], temporary[key]).
 func mergeBackFailedBuffer(ctx context.Context, rdb *redis.Client, tempKey, activeKey string, log *logger.Logger) {
 	entries, err := rdb.HGetAll(ctx, tempKey).Result()
 	if err != nil {
@@ -222,7 +232,7 @@ func mergeBackFailedBuffer(ctx context.Context, rdb *redis.Client, tempKey, acti
 
 	pipe := rdb.Pipeline()
 	for k, v := range entries {
-		pipe.HSetNX(ctx, activeKey, k, v)
+		lastUsedMergeScript.Run(ctx, pipe, []string{activeKey}, k, v)
 	}
 	
 	if _, err := pipe.Exec(ctx); err != nil {

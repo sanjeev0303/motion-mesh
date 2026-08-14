@@ -24,7 +24,7 @@ async function validateData() {
   }
 
   const accountRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
-  const apiKeyRegex = /^mot_live_[0-9a-f]{16}\.[0-9a-f]{64}$/;
+  const apiKeyRegex = /^mot_test_[0-9a-f]{16}\.[0-9a-f]{64}$/;
 
   // Check first few elements for performance
   for (let i = 0; i < 10; i++) {
@@ -59,9 +59,11 @@ async function validateData() {
     console.log(`Database has ${dbKeyCount} total API keys.`);
 
     // Random sampling
-    const sampleSize = Math.min(10, account_ids.length);
+    const sampleSize = Math.min(parseInt(process.env.VALIDATION_SAMPLE_SIZE || "100", 10), account_ids.length);
     console.log(`\nRandomly verifying ${sampleSize} samples...`);
     
+    const validationErrors = [];
+
     for (let i = 0; i < sampleSize; i++) {
       const idx = Math.floor(Math.random() * account_ids.length);
       const accId = account_ids[idx];
@@ -71,28 +73,28 @@ async function validateData() {
       const prefix = apiKey.split('.')[0];
       
       const { rows: checkRows } = await client.query('SELECT * FROM api_keys WHERE account_id = $1 AND prefix = $2', [accId, prefix]);
-      if (checkRows.length === 1) {
-        console.log(`[OK] Account ${accId} has valid key matching prefix ${prefix}`);
-      } else {
-        console.error(`[ERROR] Account ${accId} missing or mismatch for prefix ${prefix}`);
+      if (checkRows.length !== 1) {
+        validationErrors.push(`Account ${accId} missing or mismatch for API Key prefix ${prefix}`);
       }
 
       const { rows: bucketRows } = await client.query('SELECT * FROM buckets WHERE id = $1 AND account_id = $2', [bucketId, accId]);
-      if (bucketRows.length === 1) {
-        console.log(`[OK] Account ${accId} has valid bucket ${bucketId}`);
-      } else {
-        console.error(`[ERROR] Account ${accId} missing or mismatch for bucket ${bucketId}`);
+      if (bucketRows.length !== 1) {
+        validationErrors.push(`Account ${accId} missing or mismatch for bucket ${bucketId}`);
       }
 
       const { rows: videoRows } = await client.query('SELECT * FROM videos WHERE id = $1 AND account_id = $2 AND bucket_id = $3', [videoId, accId, bucketId]);
-      if (videoRows.length === 1) {
-        console.log(`[OK] Account ${accId} has valid video ${videoId} in bucket ${bucketId}`);
-      } else {
-        console.error(`[ERROR] Account ${accId} missing or mismatch for video ${videoId} in bucket ${bucketId}`);
+      if (videoRows.length !== 1) {
+        validationErrors.push(`Account ${accId} missing or mismatch for video ${videoId} in bucket ${bucketId}`);
       }
     }
     
-    console.log('\nValidation complete.');
+    if (validationErrors.length > 0) {
+      console.error("\n[CRITICAL] Data validation failed with the following relational errors:");
+      validationErrors.forEach(err => console.error(` - ${err}`));
+      process.exit(1);
+    }
+
+    console.log(`\nValidation complete. 0 relational errors across ${sampleSize} samples.`);
   } catch (e) {
     console.error(e);
   } finally {
