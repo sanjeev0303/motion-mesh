@@ -9,13 +9,12 @@ module "cloudfront" {
   retain_on_delete    = false
   wait_for_deployment = false
 
-  aliases = var.media_domain_name != "" ? [var.media_domain_name] : []
+  # aliases require a custom ACM cert - disabled until cert is ISSUED
+  # aliases = var.media_domain_name != "" ? [var.media_domain_name] : []
 
-  viewer_certificate = var.acm_certificate_arn != "" ? {
-    acm_certificate_arn      = var.acm_certificate_arn
-    ssl_support_method       = "sni-only"
-    minimum_protocol_version = "TLSv1.2_2021"
-    } : {
+  # ACM cert for CloudFront MUST be in us-east-1 AND in ISSUED state.
+  # Using cloudfront_default_certificate until DNS validation of the ACM cert completes.
+  viewer_certificate = {
     cloudfront_default_certificate = true
   }
 
@@ -42,7 +41,7 @@ module "cloudfront" {
     allowed_methods        = ["GET", "HEAD", "OPTIONS"]
     cached_methods         = ["GET", "HEAD"]
     compress               = true
-    use_forwarded_values   = false
+    use_forwarded_values   = true
     trusted_key_groups     = [aws_cloudfront_key_group.this.id]
 
     # Signed cookies are validated at the edge. Do not forward them to S3.

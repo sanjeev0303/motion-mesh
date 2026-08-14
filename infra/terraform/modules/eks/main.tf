@@ -41,9 +41,9 @@ module "eks" {
     }
 
     api = {
-      min_size     = 3
+      min_size     = 2
       max_size     = 20
-      desired_size = 3
+      desired_size = 2
 
       instance_types = ["m7i-flex.large"]
       capacity_type  = "ON_DEMAND"
@@ -55,9 +55,9 @@ module "eks" {
     }
 
     workers = {
-      min_size     = 5
+      min_size     = 2
       max_size     = 50
-      desired_size = 5
+      desired_size = 2
 
       instance_types = ["m7i-flex.large"]
       capacity_type  = "ON_DEMAND"

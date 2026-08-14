@@ -1,38 +1,20 @@
-module "aurora" {
-  source  = "terraform-aws-modules/rds-aurora/aws"
-  version = "~> 9.0"
-
-  name           = "motionmesh-${var.environment}"
-  engine         = "aurora-postgresql"
-  engine_version = var.engine_version
-
-  instances = {
-    1 = {
-      instance_class = var.instance_class
-    }
-    2 = {
-      instance_class = var.instance_class
-    }
-  }
-
-  vpc_id                 = var.vpc_id
-  db_subnet_group_name   = aws_db_subnet_group.this.name
-  create_db_subnet_group = false
-
-  create_security_group = true
-  security_group_rules = {
-    ingress_allowed_sgs = {
-      source_security_group_id = var.allowed_security_group_ids[0]
-    }
-  }
-
-  master_username             = "root"
+resource "aws_db_instance" "this" {
+  identifier           = "motionmesh-${var.environment}"
+  allocated_storage    = 20
+  storage_type         = "gp3"
+  engine               = "postgres"
+  engine_version       = "15.18"
+  instance_class       = "db.t3.micro"
+  db_name              = var.database_name
+  username             = "root"
   manage_master_user_password = true
-  database_name               = var.database_name
-
-  apply_immediately   = true
-  skip_final_snapshot = true
-
+  
+  vpc_security_group_ids = [aws_security_group.this.id]
+  db_subnet_group_name   = aws_db_subnet_group.this.name
+  
+  skip_final_snapshot    = true
+  apply_immediately      = true
+  
   tags = {
     Environment = var.environment
     Terraform   = "true"
@@ -44,10 +26,22 @@ data "aws_vpc" "this" {
 }
 
 resource "aws_db_subnet_group" "this" {
-  name       = "motionmesh-${var.environment}-aurora"
+  name       = "motionmesh-${var.environment}-db"
   subnet_ids = var.subnet_ids
 
   tags = {
     Environment = var.environment
+  }
+}
+
+resource "aws_security_group" "this" {
+  name_prefix = "motionmesh-${var.environment}-db"
+  vpc_id      = var.vpc_id
+
+  ingress {
+    from_port       = 5432
+    to_port         = 5432
+    protocol        = "tcp"
+    security_groups = var.allowed_security_group_ids
   }
 }

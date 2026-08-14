@@ -4,7 +4,8 @@ resource "tls_private_key" "cloudfront_signing" {
 }
 
 resource "aws_secretsmanager_secret" "cloudfront_signing" {
-  name = "motionmesh/${var.environment}/cloudfront-signing"
+  name_prefix             = "motionmesh/${var.environment}/cloudfront-signing-"
+  recovery_window_in_days = 0
 }
 
 resource "aws_secretsmanager_secret_version" "cloudfront_signing" {

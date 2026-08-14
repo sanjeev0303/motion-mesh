@@ -31,8 +31,17 @@ cd "${TF_DIR}"
 terraform init
 terraform validate
 
+# Pre-flight: if the S3 bucket already exists (from a previous run), import it
+# BEFORE planning so the plan reflects the real state and doesn't try to create it.
+S3_BUCKET_NAME="motionmesh-assets-${ENV}-${REGION}"
+if aws s3api head-bucket --bucket "${S3_BUCKET_NAME}" 2>/dev/null; then
+    echo "S3 bucket '${S3_BUCKET_NAME}' already exists — importing into Terraform state..."
+    terraform import 'module.s3.module.s3_bucket.aws_s3_bucket.this[0]' "${S3_BUCKET_NAME}" 2>/dev/null || true
+fi
+
 echo "Planning Terraform..."
 terraform plan -out=tfplan
+
 
 echo "Applying Terraform (15m Lock Timeout)..."
 if ! terraform apply -lock-timeout=15m -input=false -auto-approve tfplan; then
@@ -59,6 +68,7 @@ helm repo add eks https://aws.github.io/eks-charts
 helm repo add external-secrets https://charts.external-secrets.io
 helm repo add bitnami https://charts.bitnami.com/bitnami
 helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+helm repo add metrics-server https://kubernetes-sigs.github.io/metrics-server/
 helm repo update
 
 # Metrics Server
@@ -67,7 +77,7 @@ helm upgrade --install metrics-server metrics-server/metrics-server \
   --set args={--kubelet-insecure-tls}
 
 # AWS Load Balancer Controller
-LBC_ROLE_ARN=$(cd $TF_DIR && terraform output -raw load_balancer_controller_iam_role_arn)
+LBC_ROLE_ARN=$(cd $TF_DIR && terraform output -raw lbc_role_arn)
 helm upgrade --install aws-load-balancer-controller eks/aws-load-balancer-controller \
   --namespace kube-system \
   --set clusterName="motionmesh-$ENV" \

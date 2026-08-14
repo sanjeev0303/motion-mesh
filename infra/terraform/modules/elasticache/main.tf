@@ -38,7 +38,8 @@ resource "aws_elasticache_replication_group" "this" {
 }
 
 resource "aws_secretsmanager_secret" "redis" {
-  name = "motionmesh/${var.environment}/redis"
+  name_prefix             = "motionmesh/${var.environment}/redis-"
+  recovery_window_in_days = 0
 }
 
 resource "aws_secretsmanager_secret_version" "redis" {
