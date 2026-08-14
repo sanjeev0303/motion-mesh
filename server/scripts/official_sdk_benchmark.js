@@ -146,6 +146,8 @@ async function runTier(targetRPS) {
 
   const latencies = new ReservoirSampler();
   const startedAt = performance.now();
+  const elHistogram = require('perf_hooks').monitorEventLoopDelay({ resolution: 10 });
+  elHistogram.enable();
 
   while (requested < totalRequests) {
     const tickStart = performance.now();
@@ -191,6 +193,8 @@ async function runTier(targetRPS) {
   while (inFlight > 0) {
     await sleep(5);
   }
+  
+  elHistogram.disable();
 
   const durationSec = (performance.now() - startedAt) / 1000;
   const offeredRPS = sent / durationSec;
@@ -220,6 +224,12 @@ async function runTier(targetRPS) {
       p95: latencies.getPercentile(0.95),
       p99: latencies.getPercentile(0.99),
     },
+    event_loop_ms: {
+      mean: elHistogram.mean / 1e6,
+      max: elHistogram.max / 1e6,
+      p95: elHistogram.percentile(95) / 1e6,
+      p99: elHistogram.percentile(99) / 1e6,
+    },
     load_generator: {
       max_concurrency: MAX_CONCURRENCY,
       cpu_usage: process.cpuUsage(),
@@ -239,6 +249,8 @@ async function runTier(targetRPS) {
   console.log(`Latency p50:     ${report.latency_ms.p50.toFixed(2)} ms`);
   console.log(`Latency p95:     ${report.latency_ms.p95.toFixed(2)} ms`);
   console.log(`Latency p99:     ${report.latency_ms.p99.toFixed(2)} ms`);
+  console.log(`Event Loop p95:  ${report.event_loop_ms.p95.toFixed(2)} ms`);
+  console.log(`Event Loop Max:  ${report.event_loop_ms.max.toFixed(2)} ms`);
 
   if (dropped > 0) {
     console.warn(

@@ -44,9 +44,18 @@ function extractFileMeta(file: File | Buffer | Uint8Array): FileMeta {
     };
 }
 
+/**
+ * Shared production-grade connection pool.
+ * Hidden from the public API, ensuring 100K clients share 1 Agent.
+ */
+const sharedDispatcher = new Agent({
+    connections: 100,
+    keepAliveTimeout: 10000,
+    keepAliveMaxTimeout: 30000,
+});
+
 export class MotionMeshClient {
     private readonly apiKey: string;
-    private readonly dispatcher: Agent;
 
     /**
      * Create a MotionMesh client using only an API key.
@@ -70,13 +79,6 @@ export class MotionMeshClient {
         }
 
         this.apiKey = normalized;
-
-        // Configure production-grade connection pooling
-        this.dispatcher = new Agent({
-            connections: 100,
-            keepAliveTimeout: 10000,
-            keepAliveMaxTimeout: 30000,
-        });
     }
 
     private async request(path: string, options: RequestInit = {}) {
@@ -92,7 +94,7 @@ export class MotionMeshClient {
         const response = await fetch(url, {
             ...options,
             headers,
-            dispatcher: this.dispatcher,
+            dispatcher: sharedDispatcher,
         } as RequestInit & { dispatcher: any });
 
         if (!response.ok) {
