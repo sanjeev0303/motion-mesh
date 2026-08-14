@@ -71,10 +71,11 @@ helm repo add prometheus-community https://prometheus-community.github.io/helm-c
 helm repo add metrics-server https://kubernetes-sigs.github.io/metrics-server/
 helm repo update
 
-# Metrics Server
-helm upgrade --install metrics-server metrics-server/metrics-server \
+# Metrics Server (using Bitnami to bypass GitHub release download timeouts)
+helm upgrade --install metrics-server bitnami/metrics-server \
   --namespace kube-system \
-  --set args={--kubelet-insecure-tls}
+  --set apiService.create=true \
+  --set extraArgs="{--kubelet-insecure-tls}"
 
 # AWS Load Balancer Controller
 LBC_ROLE_ARN=$(cd $TF_DIR && terraform output -raw lbc_role_arn)

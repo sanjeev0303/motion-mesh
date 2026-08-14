@@ -116,3 +116,8 @@ output "media_domain_name" {
 output "cookie_domain" {
   value = var.cookie_domain
 }
+
+output "external_secrets_iam_role_arn" {
+  description = "IAM Role ARN for External Secrets Operator"
+  value       = module.iam.external_secrets_role_arn
+}
