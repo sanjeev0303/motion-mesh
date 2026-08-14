@@ -11,6 +11,64 @@
  *   }
  * }
  */
+export class AuthenticationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "AuthenticationError";
+  }
+}
+
+export class AuthorizationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "AuthorizationError";
+  }
+}
+
+export class ValidationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ValidationError";
+  }
+}
+
+export class NotFoundError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "NotFoundError";
+  }
+}
+
+export class ConflictError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ConflictError";
+  }
+}
+
+export class RateLimitError extends Error {
+  public retryAfterSeconds: number | null;
+  constructor(message: string, retryAfterSeconds: number | null) {
+    super(message);
+    this.name = "RateLimitError";
+    this.retryAfterSeconds = retryAfterSeconds;
+  }
+}
+
+export class ServerError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ServerError";
+  }
+}
+
+export class NetworkError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "NetworkError";
+  }
+}
+
 export class PlanRequiredError extends Error {
   constructor(public requiredPlan: string) {
     super(`This feature requires the ${requiredPlan} plan`);
@@ -67,5 +125,29 @@ export const handleApiError = async (
     errorMessage = response.statusText || errorMessage;
   }
 
-  throw new Error(`[Motionmesh] ${errorMessage}`);
+  const finalMessage = `[Motionmesh] ${errorMessage}`;
+
+  switch (response.status) {
+    case 401:
+      throw new AuthenticationError(finalMessage);
+    case 403:
+      throw new AuthorizationError(finalMessage);
+    case 404:
+      throw new NotFoundError(finalMessage);
+    case 409:
+      throw new ConflictError(finalMessage);
+    case 422:
+      throw new ValidationError(finalMessage);
+    case 429:
+      const retryAfter = response.headers.get("Retry-After");
+      const retryAfterSeconds = retryAfter ? parseInt(retryAfter, 10) : null;
+      throw new RateLimitError(finalMessage, retryAfterSeconds);
+    case 500:
+    case 502:
+    case 503:
+    case 504:
+      throw new ServerError(finalMessage);
+    default:
+      throw new Error(finalMessage);
+  }
 };

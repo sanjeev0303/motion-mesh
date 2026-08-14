@@ -1,6 +1,7 @@
 import { UploadVideoFields, UploadVideoResult } from "../types/index.js";
 import { handleApiError } from "../utils/handleApiError.js";
 import { uploadFile } from "../services/uploadFile.js";
+import { Agent } from "undici";
 
 type onProgressType = {
     onProgress?: (progress: {
@@ -45,6 +46,7 @@ function extractFileMeta(file: File | Buffer | Uint8Array): FileMeta {
 
 export class MotionMeshClient {
     private readonly apiKey: string;
+    private readonly dispatcher: Agent;
 
     /**
      * Create a MotionMesh client using only an API key.
@@ -68,6 +70,13 @@ export class MotionMeshClient {
         }
 
         this.apiKey = normalized;
+
+        // Configure production-grade connection pooling
+        this.dispatcher = new Agent({
+            connections: 100,
+            keepAliveTimeout: 10000,
+            keepAliveMaxTimeout: 30000,
+        });
     }
 
     private async request(path: string, options: RequestInit = {}) {
@@ -83,7 +92,8 @@ export class MotionMeshClient {
         const response = await fetch(url, {
             ...options,
             headers,
-        });
+            dispatcher: this.dispatcher,
+        } as RequestInit & { dispatcher: any });
 
         if (!response.ok) {
             await handleApiError(response, "api_request");

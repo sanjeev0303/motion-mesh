@@ -59,6 +59,9 @@
     "engines": {
         "node": ">=18"
     },
+    "dependencies": {
+        "undici": "^6.19.2"
+    },
     "devDependencies": {
         "@types/node": "^25.3.3",
         "tsup": "^8.5.1",

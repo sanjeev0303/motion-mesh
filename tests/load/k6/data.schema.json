@@ -9,14 +9,19 @@
     },
     "api_keys": {
       "type": "array",
-      "items": { "type": "string", "pattern": "^mot_live_[0-9a-f]{16}\\.[0-9a-f]{64}$" },
+      "items": { "type": "string", "pattern": "^mot_test_[0-9a-f]{16}\\.[0-9a-f]{64}$" },
       "minItems": 100000
     },
     "bucket_ids": {
       "type": "array",
       "items": { "type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$" },
       "minItems": 100000
+    },
+    "video_ids": {
+      "type": "array",
+      "items": { "type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$" },
+      "minItems": 100000
     }
   },
-  "required": ["account_ids", "api_keys", "bucket_ids"]
+  "required": ["account_ids", "api_keys", "bucket_ids", "video_ids"]
 }

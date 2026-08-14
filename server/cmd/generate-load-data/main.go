@@ -290,7 +290,12 @@ func main() {
 		log.Printf("Successfully inserted %d extra videos.", extraVideos)
 	}
 
-	// 3. Write data.json
+	// 3. Assert correctness before exporting
+	if len(exportData.VideoIDs) != numVideos {
+		log.Fatalf("generator correctness failure: expected %d videos in exportData, but found %d", numVideos, len(exportData.VideoIDs))
+	}
+
+	// 4. Write data.json
 	file, err := os.Create("tests/load/k6/data.json")
 	if err != nil {
 		log.Fatalf("failed to create data.json: %v", err)

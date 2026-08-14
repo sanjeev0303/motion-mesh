@@ -2,6 +2,7 @@ package auth
 
 import (
 	"context"
+	"errors"
 	"strconv"
 	"sync"
 	"time"
@@ -158,13 +159,28 @@ func FlushLastUsedLoop(ctx context.Context, rdb *redis.Client, repo AccountRepos
 			return
 
 		case <-ticker.C:
-			entries, err := rdb.HGetAll(ctx, lastUsedHashKey).Result()
+			tempKey := lastUsedHashKey + ":flushing"
+
+			// Atomic swap: move the active buffer to a temporary key
+			err := rdb.Rename(ctx, lastUsedHashKey, tempKey).Err()
 			if err != nil {
-				log.Error("last-used flush: HGetAll: %v", err)
+				if err.Error() == "ERR no such key" || errors.Is(err, redis.Nil) {
+					continue // Buffer was empty
+				}
+				log.Error("last-used flush: rename buffer: %v", err)
+				continue
+			}
+
+			entries, err := rdb.HGetAll(ctx, tempKey).Result()
+			if err != nil {
+				log.Error("last-used flush: HGetAll from temp buffer: %v", err)
+				// If we failed to read, try to merge it back to avoid losing data
+				mergeBackFailedBuffer(ctx, rdb, tempKey, lastUsedHashKey, log)
 				continue
 			}
 
 			if len(entries) == 0 {
+				rdb.Del(ctx, tempKey)
 				continue
 			}
 
@@ -179,13 +195,39 @@ func FlushLastUsedLoop(ctx context.Context, rdb *redis.Client, repo AccountRepos
 			}
 
 			if err := repo.BatchUpdateLastUsed(ctx, updates); err != nil {
-				log.Error("last-used flush: batch update failed: %v — buffer preserved for next tick", err)
+				log.Error("last-used flush: batch update failed: %v — merging buffer back for next tick", err)
+				mergeBackFailedBuffer(ctx, rdb, tempKey, lastUsedHashKey, log)
 				continue
 			}
 
-			if err := rdb.Del(ctx, lastUsedHashKey).Err(); err != nil {
-				log.Error("last-used flush: del buffer: %v", err)
+			if err := rdb.Del(ctx, tempKey).Err(); err != nil {
+				log.Error("last-used flush: del temp buffer: %v", err)
 			}
 		}
+	}
+}
+
+// mergeBackFailedBuffer writes the temporary buffer back into the active buffer
+// using HSETNX to avoid overwriting newer timestamps that arrived in the meantime.
+func mergeBackFailedBuffer(ctx context.Context, rdb *redis.Client, tempKey, activeKey string, log *logger.Logger) {
+	entries, err := rdb.HGetAll(ctx, tempKey).Result()
+	if err != nil {
+		log.Error("merge-back: failed to read temp buffer: %v", err)
+		return
+	}
+	
+	if len(entries) == 0 {
+		return
+	}
+
+	pipe := rdb.Pipeline()
+	for k, v := range entries {
+		pipe.HSetNX(ctx, activeKey, k, v)
+	}
+	
+	if _, err := pipe.Exec(ctx); err != nil {
+		log.Error("merge-back: failed to merge to active buffer: %v", err)
+	} else {
+		rdb.Del(ctx, tempKey)
 	}
 }
