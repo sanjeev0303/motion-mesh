@@ -1,0 +1,55 @@
+{
+  "_schema": "motionmesh-cloudwatch-v1",
+  "test_id": "test-000",
+  "timestamp_utc": "NOT_MEASURED",
+  "window_start_utc": "NOT_MEASURED",
+  "window_end_utc": "NOT_MEASURED",
+
+  "alb": {
+    "RequestCount": "NOT_MEASURED",
+    "TargetResponseTime_p50": "NOT_MEASURED",
+    "TargetResponseTime_p95": "NOT_MEASURED",
+    "TargetResponseTime_p99": "NOT_MEASURED",
+    "HTTPCode_Target_2XX_Count": "NOT_MEASURED",
+    "HTTPCode_Target_4XX_Count": "NOT_MEASURED",
+    "HTTPCode_Target_5XX_Count": "NOT_MEASURED",
+    "RejectedConnectionCount": "NOT_MEASURED",
+    "ActiveConnectionCount": "NOT_MEASURED",
+    "NewConnectionCount": "NOT_MEASURED",
+    "ProcessedBytes": "NOT_MEASURED"
+  },
+
+  "elasticache_redis": {
+    "CPUUtilization_avg_pct": "NOT_MEASURED",
+    "EngineCPUUtilization_avg_pct": "NOT_MEASURED",
+    "FreeableMemory_bytes": "NOT_MEASURED",
+    "CurrConnections": "NOT_MEASURED",
+    "NewConnections": "NOT_MEASURED",
+    "CacheHits": "NOT_MEASURED",
+    "CacheMisses": "NOT_MEASURED",
+    "CacheHitRate_pct": "NOT_MEASURED",
+    "NetworkBytesIn": "NOT_MEASURED",
+    "NetworkBytesOut": "NOT_MEASURED",
+    "Evictions": "NOT_MEASURED",
+    "ReplicationLag_ms": "NOT_MEASURED",
+    "SwapUsage_bytes": "NOT_MEASURED"
+  },
+
+  "aurora_postgres": {
+    "CPUUtilization_avg_pct": "NOT_MEASURED",
+    "DatabaseConnections_max": "NOT_MEASURED",
+    "FreeableMemory_bytes": "NOT_MEASURED",
+    "ReadIOPS_avg": "NOT_MEASURED",
+    "WriteIOPS_avg": "NOT_MEASURED",
+    "ReadLatency_p99_ms": "NOT_MEASURED",
+    "WriteLatency_p99_ms": "NOT_MEASURED",
+    "CommitLatency_p99_ms": "NOT_MEASURED",
+    "NetworkThroughput_bytes": "NOT_MEASURED"
+  },
+
+  "nat_gateway": {
+    "BytesIn": "NOT_MEASURED",
+    "BytesOut": "NOT_MEASURED",
+    "ConnectionCount": "NOT_MEASURED"
+  }
+}

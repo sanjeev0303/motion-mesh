@@ -1,0 +1,218 @@
+openapi: 3.0.3
+info:
+  title: MotionMesh API
+  version: 1.0.0
+components:
+  schemas:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+security:
+- bearerAuth: []
+paths:
+  /v1/buckets:
+    get:
+      summary: List buckets
+      responses:
+        '200':
+          description: OK
+  /v1/api-keys:
+    get:
+      summary: List API keys
+      responses:
+        '200':
+          description: OK
+    post:
+      summary: Create API key
+      responses:
+        '201':
+          description: Created
+  /v1/api-keys/{prefix}:
+    delete:
+      summary: Revoke API key
+      parameters:
+      - name: prefix
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '204':
+          description: No Content
+  /v1/billing/invoices:
+    get:
+      summary: List invoices
+      responses:
+        '200':
+          description: OK
+  /v1/billing/subscription:
+    get:
+      summary: Get subscription status
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  plan:
+                    type: string
+                  status:
+                    type: string
+                  balance:
+                    type: integer
+  /v1/billing/portal:
+    post:
+      summary: Create billing portal session
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                return_url:
+                  type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  url:
+                    type: string
+  /v1/billing/checkout:
+    post:
+      summary: Create checkout session
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                price_id:
+                  type: string
+                return_url:
+                  type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  url:
+                    type: string
+  /v1/billing/funds:
+    post:
+      summary: Add funds to balance
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                amount:
+                  type: integer
+                  description: Amount in cents
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  balance:
+                    type: integer
+  /v1/branding:
+    get:
+      summary: Get active watermark
+      responses:
+        '200':
+          description: OK
+    put:
+      summary: Update watermark configuration
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                position:
+                  type: string
+                opacity:
+                  type: number
+      responses:
+        '200':
+          description: OK
+  /v1/branding/asset:
+    post:
+      summary: Upload watermark asset
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                asset:
+                  type: string
+                  format: binary
+      responses:
+        '200':
+          description: OK
+  /v1/videos:
+    get:
+      summary: List videos
+      responses:
+        '200':
+          description: OK
+    post:
+      summary: Upload video initiation
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                filename:
+                  type: string
+                size_bytes:
+                  type: number
+      responses:
+        '201':
+          description: Created
+  /v1/videos/{id}:
+    get:
+      summary: Get video
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: OK
+    delete:
+      summary: Delete video
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '204':
+          description: No Content

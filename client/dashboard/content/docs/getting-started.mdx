@@ -1,0 +1,130 @@
+---
+title: Getting Started
+description: Install the SDK and upload your first video in under 5 minutes.
+---
+
+# Getting Started
+
+Get your first video uploaded and streaming in under 5 minutes.
+
+## Prerequisites
+
+- A MotionMesh account with an API key (create one in [Settings → API Keys](/dashboard/keys))
+- Node.js ≥ 18 **or** Python ≥ 3.10
+
+## JavaScript / TypeScript
+
+### 1. Install
+
+```bash
+npm install @motionmesh/sdk
+# optional — for the React player
+npm install @motionmesh/player
+```
+
+### 2. Create a server-side proxy route
+
+Your API key must **never** be sent to the browser. Create a thin proxy endpoint:
+
+```ts
+// app/api/motionmesh/route.ts  (Next.js App Router)
+export { POST } from "@motionmesh/sdk/proxy/nextjs";
+```
+
+Set the environment variables:
+
+```bash
+MOTIONMESH_API_KEY=mm_live_xxxxxxxxxxxxxxxx
+MOTIONMESH_API_URL=https://api.motionmesh.co.in
+```
+
+### 3. Upload a video from the browser
+
+```tsx
+import { motionmesh } from "@motionmesh/sdk";
+
+const result = await motionmesh.uploadVideo({
+  video: file,          // File from <input type="file">
+  thumbnail: thumb,     // Image File
+  title: "My First Video",
+  generateSubtitles: true,
+});
+
+console.log("Uploaded:", result.key);
+```
+
+Track progress:
+
+```tsx
+await motionmesh.uploadVideo(
+  { video: file, thumbnail: thumb, title: "Demo" },
+  { onProgress: ({ percent }) => setProgress(percent) }
+);
+```
+
+### 4. List a user's videos
+
+```tsx
+const videos = await motionmesh.videos.listByUser({
+  externalUserId: userId,
+  limit: 20,
+});
+```
+
+---
+
+## Server-side JavaScript / TypeScript
+
+For trusted server environments, the SDK requires only your MotionMesh API key. The production API endpoint is built into the SDK so applications do not need to configure a base URL.
+
+```ts
+import { MotionMeshClient } from "@motionmesh/sdk";
+
+const client = new MotionMeshClient(process.env.MOTIONMESH_API_KEY!);
+
+const videos = await client.videos.list({ limit: 20 });
+```
+
+Never expose a server-side API key in browser code. Use the proxy pattern below for browser applications.
+
+---
+
+## Python
+
+### 1. Install
+
+```bash
+pip install motionmesh
+```
+
+### 2. Initialize the client
+
+```python
+from motionmesh import MotionMeshClient
+
+client = MotionMeshClient(api_key="mm_live_xxxxxxxxxxxxxxxx")
+```
+
+### 3. Upload a video
+
+```python
+video = client.create_video(filename="intro.mp4", size_bytes=1048576)
+print(video["id"])
+```
+
+### 4. List videos
+
+```python
+videos = client.list_videos()
+for v in videos:
+    print(v["id"], v["status"])
+```
+
+---
+
+## Next steps
+
+- [Authentication →](/docs/authentication)
+- [JavaScript SDK →](/docs/javascript)
+- [Python SDK →](/docs/python)
+- [Player →](/docs/player)

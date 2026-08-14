@@ -1,0 +1,80 @@
+# Binaries
+bin/
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Test binary, built with `go test -c`
+*.test
+
+# Output of the go coverage tool
+*.out
+coverage.txt
+coverage.html
+
+# Go workspace
+go.work.user
+
+# Environment variables
+.env
+.env.*
+!.env.example
+
+# IDEs / Editor
+.idea/
+.vscode/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+.DS_Store
+Thumbs.db
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+ENV/
+env/
+
+# Node/Next.js/React
+node_modules/
+.next/
+dist/
+build/
+.npm/
+
+# Cache / Temp
+.cache/
+tmp/
+.buildcache/
+*.log
+
+# Infrastructure / Data
+infra/data/
+infra/minio/data/
+*.rdb
+*.aof
+
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.*
+crash.log
+*.tfvars
+*.tfvars.json
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+.terraformrc
+terraform.rc
+
+# Load testing data
+tests/load/k6/data.json
+docs/benchmarks/
+docs/benchmark

@@ -1,0 +1,75 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --bg-base: #0B0F17;
+    --bg-surface: #12161F;
+    --bg-surface-raised: #1A1F2B;
+    --accent-motion: #FF8A3D;
+    --accent-mesh: #4DD9E8;
+    --text-primary: #F3F1EC;
+    --text-muted: #8891A0;
+    --border-subtle: #232838;
+    --success: #3DDC97;
+    --warning: #FFC24D;
+    --danger: #FF5C5C;
+
+    /* Shadcn defaults mapped to our tokens */
+    --background: 220 36% 6%; /* #0B0F17 */
+    --foreground: 40 23% 94%; /* #F3F1EC */
+
+    --card: 221 26% 10%; /* #12161F */
+    --card-foreground: 40 23% 94%;
+
+    --popover: 221 26% 10%;
+    --popover-foreground: 40 23% 94%;
+
+    --primary: 24 100% 62%; /* #FF8A3D */
+    --primary-foreground: 220 36% 6%;
+
+    --secondary: 186 70% 61%; /* #4DD9E8 */
+    --secondary-foreground: 220 36% 6%;
+
+    --muted: 221 26% 10%;
+    --muted-foreground: 217 11% 58%; /* #8891A0 */
+
+    --accent: 221 25% 14%; /* #1A1F2B */
+    --accent-foreground: 40 23% 94%;
+
+    --destructive: 0 100% 68%; /* #FF5C5C */
+    --destructive-foreground: 40 23% 94%;
+
+    --border: 226 23% 18%; /* #232838 */
+    --input: 226 23% 18%;
+    --ring: 24 100% 62%; /* #FF8A3D */
+
+    --radius: 0.5rem;
+  }
+
+  body {
+    @apply bg-base text-primary font-sans antialiased;
+    background-color: var(--bg-base);
+    color: var(--text-primary);
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    @apply font-display tracking-tight;
+  }
+
+  *:focus-visible {
+    @apply outline-none ring-2 ring-accent-motion ring-offset-2 ring-offset-base;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+}

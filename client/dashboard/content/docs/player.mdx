@@ -1,0 +1,101 @@
+---
+title: Player
+description: Drop-in React video player with HLS, captions, and chapters — built on Vidstack.
+---
+
+# Player SDK Reference
+
+**Package:** `@motionmesh/player`  
+**Built on:** Vidstack — HLS, captions, chapters, and thumbnails included.
+
+## Installation
+
+```bash
+npm install @motionmesh/player
+```
+
+## Basic usage
+
+```tsx
+import { MotionMeshPlayer } from "@motionmesh/player/react";
+
+export default function VideoPage({ videoId }: { videoId: string }) {
+  return (
+    <MotionMeshPlayer
+      src={`https://api.motionmesh.co.in/v1/videos/${videoId}/hls/master.m3u8`}
+      poster={`https://api.motionmesh.co.in/v1/buckets/default/objects/videos/${videoId}/poster.jpg`}
+    />
+  );
+}
+```
+
+## Props
+
+| Prop | Type | Required | Description |
+|------|------|----------|-------------|
+| `src` | `string` | ✓ | HLS master playlist URL |
+| `poster` | `string` | | Poster/thumbnail image URL |
+| `captions` | `CaptionTrack[]` | | Caption track list |
+| `chapters` | `Chapter[]` | | Chapter marker list |
+| `autoPlay` | `boolean` | | Auto-play on mount |
+| `muted` | `boolean` | | Start muted |
+| `loop` | `boolean` | | Loop playback |
+| `className` | `string` | | CSS class for the wrapper |
+
+## Types
+
+```ts
+type CaptionTrack = {
+  src: string;       // .vtt URL
+  label: string;     // e.g. "English"
+  language: string;  // BCP-47 code, e.g. "en"
+  default?: boolean;
+};
+
+type Chapter = {
+  startTime: number;  // seconds
+  title: string;
+};
+```
+
+## With captions and chapters
+
+```tsx
+<MotionMeshPlayer
+  src="https://api.motionmesh.co.in/v1/videos/vid_abc/hls/master.m3u8"
+  poster="https://api.motionmesh.co.in/v1/buckets/default/objects/videos/vid_abc/poster.jpg"
+  captions={[{
+    src: "https://api.motionmesh.co.in/v1/buckets/default/objects/videos/vid_abc/captions/en.vtt",
+    label: "English",
+    language: "en",
+    default: true,
+  }]}
+  chapters={[
+    { startTime: 0, title: "Introduction" },
+    { startTime: 60, title: "Core concepts" },
+    { startTime: 180, title: "Demo" },
+  ]}
+/>
+```
+
+## Server-side rendering (Next.js)
+
+```tsx
+import dynamic from "next/dynamic";
+
+const MotionMeshPlayer = dynamic(
+  () => import("@motionmesh/player/react").then((m) => m.MotionMeshPlayer),
+  { ssr: false }
+);
+```
+
+## Theming
+
+```css
+:root {
+  --mm-player-brand: #6d28d9;
+  --mm-player-bg: #000;
+  --mm-player-controls-bg: rgba(0,0,0,0.5);
+  --mm-player-font: "Inter", sans-serif;
+}
+```

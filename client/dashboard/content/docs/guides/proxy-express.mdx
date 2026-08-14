@@ -1,0 +1,79 @@
+---
+title: Proxy — Express
+description: Create a secure server-side proxy in Express.js so your API key never reaches the browser.
+---
+
+# Proxy: Express.js
+
+## 1. Set environment variables
+
+```env
+MOTIONMESH_API_KEY=mm_live_xxxxxxxxxxxxxxxx
+MOTIONMESH_API_URL=https://api.motionmesh.co.in
+```
+
+## 2. Install and mount
+
+```bash
+npm install @motionmesh/sdk express
+```
+
+```ts
+import express from "express";
+import { motionmeshProxy } from "@motionmesh/sdk/proxy/express";
+
+const app = express();
+app.use("/api/motionmesh", motionmeshProxy());
+app.listen(3000);
+```
+
+## 3. Add JWT auth middleware
+
+```ts
+import jwt from "jsonwebtoken";
+
+function requireAuth(req, res, next) {
+  const token = req.headers.authorization?.split(" ")[1];
+  if (!token) return res.status(401).json({ error: "Unauthorized" });
+
+  try {
+    const payload = jwt.verify(token, process.env.JWT_SECRET) as { sub: string };
+    res.locals.userId = payload.sub;
+    next();
+  } catch {
+    res.status(401).json({ error: "Invalid token" });
+  }
+}
+
+app.use(
+  "/api/motionmesh",
+  requireAuth,
+  motionmeshProxy({
+    injectExternalUserId: (req, res) => res.locals.userId,
+  })
+);
+```
+
+## 4. Configuration options
+
+```ts
+motionmeshProxy({
+  apiKey?: string;
+  apiUrl?: string;
+  injectExternalUserId?: string | ((req, res) => string);
+  onError?: (err, req, res) => void;
+})
+```
+
+## 5. CORS
+
+```ts
+import cors from "cors";
+
+app.use(
+  "/api/motionmesh",
+  cors({ origin: "https://yourapp.com" }),
+  requireAuth,
+  motionmeshProxy()
+);
+```

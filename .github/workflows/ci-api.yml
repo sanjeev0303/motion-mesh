@@ -1,0 +1,29 @@
+name: CI API
+
+on:
+  push:
+    paths:
+      - 'server/api/**'
+      - 'server/shared/**'
+  pull_request:
+    paths:
+      - 'server/api/**'
+      - 'server/shared/**'
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+
+      - name: Run unit tests
+        # Integration tests under tests/integration require TEST_API_KEY and will self-skip.
+        run: cd server/api && go test -v -count=1 ./internal/...
+
+      - name: Build API binary
+        run: cd server/api && go build ./cmd/api/...

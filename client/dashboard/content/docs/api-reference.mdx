@@ -1,0 +1,179 @@
+---
+title: API Reference
+description: Complete REST API reference — endpoints, authentication, request/response schemas, and error codes.
+---
+
+# API Reference
+
+Base URL: `https://api.motionmesh.co.in/v1`
+
+All requests require a bearer token:
+
+```http
+Authorization: Bearer mm_live_xxxxxxxxxxxxxxxx
+```
+
+---
+
+## Videos
+
+### `GET /videos`
+
+List all videos for the authenticated account.
+
+**Query parameters**
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `external_user_id` | `string` | Filter to a specific user |
+| `limit` | `integer` | Max results (default: `20`, max: `100`) |
+| `cursor` | `string` | Pagination cursor |
+
+**Response `200`**
+
+```json
+[
+  {
+    "id": "vid_abc123",
+    "title": "My Video",
+    "status": "ready",
+    "captions_status": "ready",
+    "duration": 142.5,
+    "thumbnail_key": "videos/vid_abc123/poster.jpg",
+    "created_at": "2026-07-29T08:00:00Z",
+    "updated_at": "2026-07-29T08:05:00Z"
+  }
+]
+```
+
+### `POST /videos`
+
+Initiate a video upload.
+
+```json
+{ "filename": "intro.mp4", "size_bytes": 52428800 }
+```
+
+**Response `201`**
+
+```json
+{
+  "upload_url": "https://...",
+  "object_key": "uploads/vid_abc123/source.mp4",
+  "video": { "id": "vid_abc123", "status": "queued" }
+}
+```
+
+### `GET /videos/{id}`
+
+Get a single video. **Response `200`** — same shape as the list item.
+
+### `DELETE /videos/{id}`
+
+Permanently delete a video and all assets. **Response `204`**
+
+---
+---
+
+## Branding
+
+### `GET /branding`
+
+```json
+{ "position": "bottom-right", "opacity": 0.8, "is_active": true }
+```
+
+### `PUT /branding`
+
+```json
+{ "position": "bottom-right", "opacity": 0.8 }
+```
+
+Position values: `top-left` | `top-right` | `bottom-left` | `bottom-right` | `center`
+
+### `POST /branding/asset`
+
+Upload a watermark image (`multipart/form-data`). Field name: `asset`. Max 2 MB.
+
+---
+
+## API Keys
+
+### `GET /api-keys`
+
+```json
+[{ "prefix": "mm_live_abcd", "created_at": "2026-07-18T00:00:00Z" }]
+```
+
+### `POST /api-keys`
+
+Creates a new key. Full key returned **only once**:
+
+```json
+{ "prefix": "mm_live_efgh", "key": "mm_live_efghxxxxxxxxxxxxxxxx" }
+```
+
+### `DELETE /api-keys/{prefix}`
+
+**Response `204`**
+
+---
+
+## Analytics
+
+### `POST /analytics/collect`
+
+Public endpoint — no auth required.
+
+```json
+{
+  "video_id": "vid_abc123",
+  "event_type": "play",
+  "timestamp": "2026-07-29T08:10:00Z"
+}
+```
+
+Event types: `play` | `pause` | `end` | `seek` | `error`
+
+### `GET /analytics/stats`
+
+```json
+{
+  "total_plays": 1240,
+  "unique_viewers": 380,
+  "avg_watch_time_seconds": 94
+}
+```
+
+---
+
+## Billing
+
+### `GET /billing/subscription`
+
+```json
+{ "plan": "pro", "status": "active", "current_period_end": "2026-08-29T00:00:00Z" }
+```
+
+### `GET /billing/invoices`
+
+```json
+[{ "amount": 2900, "currency": "usd", "status": "paid" }]
+```
+
+---
+
+## Error responses
+
+```json
+{ "error": "human-readable message" }
+```
+
+| Status | Meaning |
+|--------|---------|
+| `400` | Bad request |
+| `401` | Missing or invalid API key |
+| `403` | Insufficient plan tier |
+| `404` | Not found |
+| `429` | Rate limit exceeded |
+| `500` | Internal server error |

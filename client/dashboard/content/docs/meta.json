@@ -1,0 +1,14 @@
+{
+  "pages": [
+    "index",
+    "getting-started",
+    "authentication",
+    "javascript",
+    "python",
+    "player",
+    "api-reference",
+    "guides",
+    "deployment",
+    "changelog"
+  ]
+}

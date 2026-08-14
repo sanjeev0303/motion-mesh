@@ -1,0 +1,72 @@
+---
+title: Proxy — Next.js
+description: Create a secure server-side proxy in Next.js App Router so your API key never reaches the browser.
+---
+
+# Proxy: Next.js App Router
+
+## 1. Set environment variables
+
+```env
+# .env.local
+MOTIONMESH_API_KEY=mm_live_xxxxxxxxxxxxxxxx
+MOTIONMESH_API_URL=https://api.motionmesh.co.in
+```
+
+## 2. Create the route handler
+
+```ts
+// app/api/motionmesh/route.ts
+export { POST } from "@motionmesh/sdk/proxy/nextjs";
+```
+
+## 3. Add auth middleware (recommended)
+
+```ts
+// app/api/motionmesh/route.ts
+import { auth } from "@clerk/nextjs/server";
+import { NextRequest, NextResponse } from "next/server";
+import { handleMotionmeshProxy } from "@motionmesh/sdk/proxy/nextjs";
+
+export async function POST(req: NextRequest) {
+  const { userId } = auth();
+  if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  return handleMotionmeshProxy(req, { injectExternalUserId: userId });
+}
+```
+
+## 4. Use the SDK in your component
+
+```tsx
+"use client";
+import { motionmesh } from "@motionmesh/sdk";
+
+const handleChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const file = e.target.files?.[0];
+  if (!file) return;
+
+  await motionmesh.uploadVideo(
+    { video: file, thumbnail: file, title: file.name },
+    { onProgress: ({ percent }) => console.log(`${percent}%`) }
+  );
+};
+
+return <input type="file" accept="video/*" onChange={handleChange} />;
+```
+
+## 5. Clerk middleware config
+
+```ts
+// middleware.ts
+import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server";
+
+const isPublic = createRouteMatcher(["/", "/sign-in(.*)", "/sign-up(.*)"]);
+
+export default clerkMiddleware((auth, req) => {
+  if (!isPublic(req)) auth().protect();
+});
+
+export const config = {
+  matcher: ["/((?!_next|.*\\..*).*)"],
+};
+```

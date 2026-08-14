@@ -1,0 +1,138 @@
+---
+title: Captions & Chapters
+description: Auto-generated captions and chapter markers.
+---
+
+# Captions & Chapters
+
+MotionMesh automatically generates WebVTT captions and chapter markers from your video's audio using Whisper.
+
+## How auto-captions work
+
+```
+Upload video → Worker extracts audio → Captions sidecar (Whisper) → .vtt stored in object storage
+                                                                          ↓
+                                               videos.captions_status = "ready"
+```
+
+### Status lifecycle
+
+| `captions_status` | Meaning |
+|-------------------|---------|
+| `pending` | Upload received, captioning not yet started |
+| `processing` | Whisper is transcribing |
+| `ready` | `.vtt` file available in storage |
+| `failed` | Transcription failed (see logs) |
+
+## Enabling auto-captions
+
+Pass `generateSubtitles: true` when uploading:
+
+```tsx
+await motionmesh.uploadVideo({
+  video: file,
+  thumbnail: thumb,
+  title: "Tutorial",
+  generateSubtitles: true,   // ← triggers Whisper transcription
+});
+```
+
+For videos longer than **3 minutes**, chapter markers are generated automatically alongside captions.
+
+## Polling caption status
+
+```tsx
+const pollCaptionStatus = async (videoId: string) => {
+  while (true) {
+    const video = await fetch(`/api/motionmesh/videos/${videoId}`).then(r => r.json());
+
+    if (video.captions_status === "ready") {
+      console.log("Captions ready!");
+      break;
+    }
+    if (video.captions_status === "failed") {
+      console.error("Captioning failed");
+      break;
+    }
+
+    await new Promise(r => setTimeout(r, 3000)); // poll every 3s
+  }
+};
+```
+
+## Displaying captions with the player
+
+```tsx
+import { MotionMeshPlayer } from "@motionmesh/player/react";
+
+const API_URL = "https://api.motionmesh.co.in";
+
+<MotionMeshPlayer
+  src={`${API_URL}/v1/videos/${videoId}/hls/master.m3u8`}
+  poster={`${API_URL}/v1/buckets/default/objects/videos/${videoId}/poster.jpg`}
+  captions={[
+    {
+      src: `${API_URL}/v1/buckets/default/objects/videos/${videoId}/captions/en.vtt`,
+      label: "English",
+      language: "en",
+      default: true,
+    },
+  ]}
+/>
+```
+
+## Displaying chapters
+
+Chapter data is stored in the database. Fetch them from your API and pass to the player:
+
+```tsx
+// Fetch from your backend
+const { chapters } = await fetch(`/api/videos/${videoId}/chapters`).then(r => r.json());
+
+// chapters: [{ start_time_seconds: 0, title: "Intro" }, ...]
+
+<MotionMeshPlayer
+  src={`${API_URL}/v1/videos/${videoId}/hls/master.m3u8`}
+  chapters={chapters.map(c => ({
+    startTime: c.start_time_seconds,
+    title: c.title,
+  }))}
+/>
+```
+
+## Caption file format
+
+Captions are stored as standard WebVTT (`.vtt`):
+
+```
+WEBVTT
+
+00:00:00.000 --> 00:00:04.500
+Welcome to this tutorial on MotionMesh.
+
+00:00:04.500 --> 00:00:09.000
+Today we'll look at uploading your first video.
+```
+
+## Using captions with a custom player
+
+If you're not using `@motionmesh/player`, add the `.vtt` as a `<track>` element in an HTML5 `<video>`:
+
+```html
+<video controls>
+  <source src="https://api.motionmesh.co.in/v1/videos/vid_abc/hls/master.m3u8" type="application/x-mpegURL" />
+  <track
+    kind="subtitles"
+    src="https://api.motionmesh.co.in/v1/buckets/default/objects/videos/vid_abc/captions/en.vtt"
+    srclang="en"
+    label="English"
+    default
+  />
+</video>
+```
+
+## Language support
+
+Whisper supports over 90 languages. The detected language is stored as the `language` field on the `caption_tracks` table. English is always generated as the default track (`en`).
+
+> **Tip:** For best accuracy, use videos recorded in a quiet environment with clear speech. Background music can reduce transcription quality.

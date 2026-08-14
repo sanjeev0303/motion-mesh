@@ -1,0 +1,25 @@
+---
+title: Deployment
+description: Deploying MotionMesh to production
+---
+
+# Deployment
+
+Learn how to deploy MotionMesh services to production environments.
+
+## Docker Swarm / Kubernetes
+
+MotionMesh is designed as a modular monolith, making it easy to deploy using container orchestration tools like Docker Swarm or Kubernetes.
+
+1. Build the Docker images using the provided `Dockerfile`.
+2. Push the images to your container registry.
+3. Use the sample Kubernetes manifests in the `/infra/k8s` directory to deploy the services.
+
+## Managed Services
+
+For production deployments, we recommend using managed services for core infrastructure components:
+
+- **Database**: Amazon RDS for PostgreSQL or Neon.
+- **Object Storage**: Amazon S3 or Cloudflare R2.
+- **Message Broker**: NATS Cloud or self-hosted JetStream cluster.
+- **Cache**: Amazon ElastiCache for Redis.

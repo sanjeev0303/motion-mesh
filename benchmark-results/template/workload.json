@@ -1,0 +1,38 @@
+{
+  "_schema": "motionmesh-benchmark-workload-v1",
+  "test_id": "test-000",
+  "git_sha": "NOT_MEASURED",
+  "terraform_version": "NOT_MEASURED",
+  "aws_region": "NOT_MEASURED",
+  "timestamp_utc": "NOT_MEASURED",
+  "duration_seconds": 0,
+  "workload": {
+    "type": "NOT_MEASURED",
+    "description": "NOT_MEASURED",
+    "rps_target": 0,
+    "rps_actual": "NOT_MEASURED",
+    "rps_successful": "NOT_MEASURED",
+    "rps_failed": "NOT_MEASURED",
+    "rps_dropped": "NOT_MEASURED",
+    "error_rate_pct": "NOT_MEASURED",
+    "load_generator_count": 0,
+    "load_generator_cpu_pct": "NOT_MEASURED",
+    "load_generator_mem_mb": "NOT_MEASURED",
+    "load_generator_saturated": false
+  },
+  "route_mix": {
+    "GET /v1/videos": 0.30,
+    "GET /v1/videos/:id": 0.20,
+    "GET /v1/videos/:id/playback": 0.15,
+    "GET /v1/jobs": 0.10,
+    "GET /v1/buckets": 0.10,
+    "GET /v1/buckets/:id/objects": 0.05,
+    "GET /v1/branding": 0.05,
+    "POST /v1/videos": 0.05
+  },
+  "dataset": {
+    "api_key_count": 0,
+    "video_count": 0,
+    "bucket_count": 0
+  }
+}

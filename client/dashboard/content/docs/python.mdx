@@ -1,0 +1,91 @@
+---
+title: Python SDK
+description: Full reference for the motionmesh Python SDK.
+---
+
+# Python SDK Reference
+
+**Package:** `motionmesh`  
+**Requires:** Python ≥ 3.10
+
+## Installation
+
+```bash
+pip install motionmesh
+```
+
+## `MotionMeshClient`
+
+```python
+from motionmesh import MotionMeshClient
+
+client = MotionMeshClient(
+    api_key="mm_live_xxxxxxxxxxxxxxxx",
+    base_url="https://api.motionmesh.co.in/v1",  # optional
+)
+```
+
+---
+
+## Videos
+
+### `list_videos()`
+```python
+videos = client.list_videos()
+for v in videos:
+    print(v["id"], v["title"], v["status"])
+```
+
+### `create_video(filename, size_bytes)`
+```python
+video = client.create_video(filename="intro.mp4", size_bytes=52428800)
+print(video["id"])
+```
+
+### `get_video(video_id)`
+```python
+video = client.get_video("vid_abc123")
+print(video["captions_status"])  # pending | processing | ready | failed
+```
+
+### `delete_video(video_id)`
+```python
+client.delete_video("vid_abc123")
+```
+
+---
+
+## Branding
+
+### `get_branding()` / `update_branding(position, opacity)`
+```python
+client.update_branding(position="bottom-right", opacity=0.8)
+```
+
+### `upload_watermark_asset(file_path)`
+```python
+client.upload_watermark_asset("/path/to/logo.png")
+```
+
+---
+
+## API Keys
+
+```python
+keys = client.list_api_keys()
+new_key = client.create_api_key()
+client.revoke_api_key("mm_live_abcd")
+```
+
+---
+
+## Error handling
+
+```python
+import requests
+
+try:
+    client.get_video("nonexistent")
+except requests.HTTPError as e:
+    print(e.response.status_code, e.response.text)
+```

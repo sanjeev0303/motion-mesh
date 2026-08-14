@@ -1,0 +1,121 @@
+---
+title: JavaScript SDK
+description: Full reference for the @motionmesh/sdk JavaScript and TypeScript SDK.
+---
+
+# JavaScript SDK Reference
+
+**Package:** `@motionmesh/sdk`  
+**Requires:** Node.js ≥ 18 or a modern browser (via proxy)
+
+## Installation
+
+```bash
+npm install @motionmesh/sdk
+```
+
+## `motionmesh.uploadVideo(fields, options?, proxyUrl?)`
+
+Uploads a video through your server-side proxy.
+
+### Parameters
+
+| Name | Type | Required | Description |
+|------|------|----------|-------------|
+| `fields.video` | `File` | ✓ | Video file object |
+| `fields.thumbnail` | `File` | ✓ | Thumbnail image file |
+| `fields.title` | `string` | ✓ | Display title |
+| `fields.description` | `string` | | Optional description |
+| `fields.tags` | `string[]` | | Tag list |
+| `fields.generateSubtitles` | `boolean` | | Trigger auto-captioning (default: `false`) |
+| `fields.includeWatermark` | `boolean` | | Apply account watermark (default: `false`) |
+| `fields.externalUserId` | `string` | | Your auth system's user ID |
+| `fields.timestamps` | `string[]` | | Chapter timestamp hints |
+| `options.onProgress` | `({ loaded, total, percent }) => void` | | Upload progress callback |
+| `proxyUrl` | `string` | | Override proxy URL (default: `/api/motionmesh`) |
+
+### Returns
+
+```ts
+{ key: string }  // Object storage key of the uploaded video
+```
+
+### Example
+
+```tsx
+import { motionmesh } from "@motionmesh/sdk";
+
+const { key } = await motionmesh.uploadVideo(
+  {
+    video: videoFile,
+    thumbnail: thumbFile,
+    title: "Product Demo",
+    generateSubtitles: true,
+    externalUserId: currentUser.id,
+  },
+  { onProgress: ({ percent }) => console.log(`${percent}%`) }
+);
+```
+
+---
+
+## `motionmesh.videos.listByUser(options, proxyUrl?)`
+
+### Parameters
+
+| Name | Type | Required | Description |
+|------|------|----------|-------------|
+| `options.externalUserId` | `string` | ✓ | User ID from your auth system |
+| `options.limit` | `number` | | Max results (default: `20`) |
+| `options.cursor` | `string` | | Pagination cursor |
+
+### Example
+
+```tsx
+const videos = await motionmesh.videos.listByUser({
+  externalUserId: "user_abc123",
+  limit: 10,
+});
+```
+
+---
+
+## Types
+
+```ts
+type UploadVideoFields = {
+  title: string;
+  video: File;
+  thumbnail: File;
+  description?: string;
+  tags?: string[];
+  generateSubtitles?: boolean;
+  includeWatermark?: boolean;
+  externalUserId?: string;
+  timestamps?: string[];
+};
+
+type UploadVideoResult = { key: string };
+
+type Video = {
+  id: string;
+  title: string;
+  status: "queued" | "processing" | "ready" | "failed";
+  captions_status: "pending" | "processing" | "ready" | "failed";
+  duration: number;
+  created_at: string;
+  thumbnail_key?: string;
+};
+```
+
+---
+
+## Error handling
+
+```tsx
+try {
+  await motionmesh.uploadVideo({ video: f, thumbnail: t, title: "Demo" });
+} catch (err) {
+  if (err instanceof Error) console.error(err.message);
+}
+```

@@ -1,0 +1,9 @@
+{
+  "title": "Guides",
+  "pages": [
+    "proxy-nextjs",
+    "proxy-express",
+    "profile-feed",
+    "captions-chapters"
+  ]
+}

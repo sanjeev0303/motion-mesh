@@ -1,0 +1,66 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: motionmesh-db-migration
+  namespace: motionmesh
+  labels:
+    app: db-migration
+spec:
+  backoffLimit: 3
+  template:
+    metadata:
+      labels:
+        app: db-migration
+    spec:
+      serviceAccountName: motionmesh-api
+      automountServiceAccountToken: false
+      restartPolicy: Never
+      nodeSelector:
+        NodeGroup: system
+      initContainers:
+        - name: wait-for-db
+          image: postgres:15-alpine
+          envFrom:
+            - secretRef:
+                name: motionmesh-secrets
+          command:
+            - sh
+            - -c
+            - |
+              echo "Waiting for Aurora PostgreSQL to be reachable..."
+              until pg_isready -d $DATABASE_URL; do
+                sleep 2
+              done
+              echo "Aurora is reachable!"
+      containers:
+        - name: migrate
+          # The deploy script must replace this with the worker image or an image containing golang-migrate
+          image: ${API_IMAGE_URI}
+          command:
+            - /app/migrate
+            - -path
+            - /app/migrations
+            - -database
+            - $(DATABASE_URL)
+            - up
+          envFrom:
+            - secretRef:
+                name: motionmesh-secrets
+            - configMapRef:
+                name: motionmesh-config
+          securityContext:
+            runAsNonRoot: true
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            seccompProfile:
+              type: RuntimeDefault
+            capabilities:
+              drop:
+                - ALL
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "256Mi"
+            limits:
+              cpu: "1000m"
+              memory: "512Mi"

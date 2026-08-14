@@ -1,0 +1,45 @@
+**/.git
+**/.gitignore
+**/.github
+**/.DS_Store
+**/Thumbs.db
+
+# Environments
+**/.env
+**/.env.*
+!**/.env.example
+
+# IDEs
+**/.vscode
+**/.idea
+
+# Build caches & outputs
+**/.buildcache
+**/.cache
+**/.next
+**/node_modules
+**/dist
+**/build
+**/.npm
+
+# Python
+**/__pycache__
+**/*.pyc
+**/.venv
+**/venv
+**/env
+
+# Go
+**/bin
+**/*.out
+**/*.test
+
+# Logs
+**/*.log
+
+# Project specific
+**/infra/data
+**/infra/minio/data
+**/task.md
+**/implementation_plan.md
+**/walkthrough.md

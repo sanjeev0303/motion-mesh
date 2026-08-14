@@ -1,0 +1,86 @@
+module "eks" {
+  source  = "terraform-aws-modules/eks/aws"
+  version = "~> 20.0"
+
+  cluster_name    = var.cluster_name
+  cluster_version = var.cluster_version
+
+  cluster_endpoint_public_access  = true
+  cluster_endpoint_private_access = true
+
+  vpc_id     = var.vpc_id
+  subnet_ids = var.subnet_ids
+
+  enable_irsa = true
+
+  cluster_addons = {
+    eks-pod-identity-agent = {
+      most_recent = true
+    }
+  }
+
+  eks_managed_node_group_defaults = {
+    ami_type       = "AL2023_x86_64_STANDARD"
+    instance_types = ["m5.large"]
+    disk_size      = 50
+  }
+
+  eks_managed_node_groups = {
+    system = {
+      min_size     = 2
+      max_size     = 5
+      desired_size = 2
+
+      instance_types = ["m6i.large"]
+      capacity_type  = "ON_DEMAND"
+
+      labels = {
+        Environment = var.environment
+        NodeGroup   = "system"
+      }
+    }
+
+    api = {
+      min_size     = 3
+      max_size     = 20
+      desired_size = 3
+
+      instance_types = ["c6i.2xlarge", "m6i.2xlarge"]
+      capacity_type  = "ON_DEMAND"
+
+      labels = {
+        Environment = var.environment
+        NodeGroup   = "api"
+      }
+    }
+
+    workers = {
+      min_size     = 5
+      max_size     = 50
+      desired_size = 5
+
+      instance_types = ["c6i.4xlarge", "c6a.4xlarge"]
+      capacity_type  = "ON_DEMAND"
+
+      labels = {
+        Environment = var.environment
+        NodeGroup   = "workers"
+      }
+
+      taints = [
+        {
+          key    = "workload"
+          value  = "worker"
+          effect = "NO_SCHEDULE"
+        }
+      ]
+    }
+  }
+
+  enable_cluster_creator_admin_permissions = true
+
+  tags = {
+    Environment = var.environment
+    Terraform   = "true"
+  }
+}

@@ -1,0 +1,33 @@
+--- /home/sanju/awesome/motionmesh/server/api/internal/videos/handler.go
++++ /home/sanju/awesome/motionmesh/server/api/internal/videos/handler.go
+@@ -32,6 +32,7 @@
+ 	r.Post("/{id}/upload", h.HandleProxyUpload)
+ 	r.Get("/{id}/thumbnail", h.HandleGetThumbnail)
+ 	r.Get("/{id}/playback", h.HandleGetPlaybackInfo)
++	r.Post("/{id}/transcode", h.HandleCreateTranscodeJob)
+ }
+ 
+ func (h *Handler) HandleListVideos(w http.ResponseWriter, r *http.Request) {
+@@ -311,3 +312,23 @@
+ 	})
+ }
++
++func (h *Handler) HandleCreateTranscodeJob(w http.ResponseWriter, r *http.Request) {
++	ctx := r.Context()
++	accountID := middleware.GetAccountID(ctx)
++	videoID := chi.URLParam(r, "id")
++
++	video, err := h.svc.GetVideo(ctx, videoID, accountID)
++	if err != nil {
++		render.Render(w, r, errors.ErrNotFound)
++		return
++	}
++
++	if err := h.transcodeSvc.TriggerJob(ctx, video); err != nil {
++		logger.New().Error("trigger transcode job: %v", err)
++		render.Render(w, r, errors.ErrInternal(err))
++		return
++	}
++
++	render.JSON(w, r, map[string]string{"status": "queued"})
++}

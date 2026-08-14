@@ -1,0 +1,52 @@
+# Version control & IDE
+.git
+.gitignore
+.editorconfig
+.vscode
+.idea
+
+# Node
+node_modules
+**/node_modules
+**/.next
+**/out
+**/.turbo
+
+# Python
+.venv
+**/__pycache__
+**/*.pyc
+**/*.pyo
+**/.pytest_cache
+
+# OS artefacts
+.DS_Store
+*.log
+
+# Test & sample files
+*.mp4
+*.mov
+*.avi
+test_*.go
+test_e2e.sh
+examples/
+
+# Docs & non-build files
+README.md
+context.md
+*.md
+# sdk/
+
+# Local env files (passed via env_file in compose)
+.env
+.env.*
+*/.env
+*/.env.*
+
+# Misc
+infra/
+scripts/
+task.md
+
+# Cache
+.buildcache

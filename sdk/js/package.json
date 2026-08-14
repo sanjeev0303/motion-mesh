@@ -1,0 +1,8 @@
+{
+  "name": "motionmesh-sdk-workspace",
+  "private": true,
+  "workspaces": [
+    "packages/*",
+    "examples/*"
+  ]
+}

@@ -1,0 +1,110 @@
+---
+title: Authentication
+description: Secure your API calls using the proxy pattern — keep your API key out of the browser.
+---
+
+# Authentication
+
+MotionMesh uses **API keys** for server-to-server authentication and a **proxy pattern** to keep keys out of the browser.
+
+## How it works
+
+```
+Browser → Your Server (proxy) → MotionMesh API
+                ↑
+         API key lives here only
+```
+
+The SDK's `uploadVideo` and `videos.listByUser` methods POST to `/api/motionmesh` on **your** server. Your proxy injects the secret API key before forwarding to MotionMesh.
+
+## API Key types
+
+| Prefix | Scope |
+|--------|-------|
+| `mm_live_…` | Full access — upload, delete, admin |
+| `mm_test_…` | Sandbox only — no real charges or storage |
+
+Create and revoke keys in [Dashboard → Settings → API Keys](/dashboard/keys).
+
+## Proxy quickstarts
+
+### Next.js App Router
+
+```ts
+// app/api/motionmesh/route.ts
+export { POST } from "@motionmesh/sdk/proxy/nextjs";
+```
+
+```env
+MOTIONMESH_API_KEY=mm_live_xxxxxxxxxxxxxxxx
+MOTIONMESH_API_URL=https://api.motionmesh.co.in
+```
+
+### Express
+
+```ts
+import express from "express";
+import { motionmeshProxy } from "@motionmesh/sdk/proxy/express";
+
+const app = express();
+app.use("/api/motionmesh", motionmeshProxy());
+```
+
+### Protecting the proxy with Clerk
+
+```ts
+// app/api/motionmesh/route.ts
+import { auth } from "@clerk/nextjs/server";
+import { NextRequest, NextResponse } from "next/server";
+import { handleMotionmeshProxy } from "@motionmesh/sdk/proxy/nextjs";
+
+export async function POST(req: NextRequest) {
+  const { userId } = auth();
+  if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  return handleMotionmeshProxy(req);
+}
+```
+
+## Linking videos to users
+
+Pass `externalUserId` on upload — use your auth system's user ID:
+
+```tsx
+await motionmesh.uploadVideo({
+  video: file,
+  thumbnail: thumb,
+  title: "My Video",
+  externalUserId: userId,
+});
+```
+
+Retrieve only that user's videos:
+
+```tsx
+const videos = await motionmesh.videos.listByUser({ externalUserId: userId });
+```
+
+## SDK client configuration
+
+The server-side JavaScript SDK uses API-key authentication. The public client constructor accepts only the MotionMesh API key; the production API endpoint is managed by the SDK.
+
+```ts
+import { MotionMeshClient } from "@motionmesh/sdk";
+
+const client = new MotionMeshClient(process.env.MOTIONMESH_API_KEY!);
+```
+
+Do not pass `baseURL` or expose the API key to browser code.
+
+## Server-side direct usage (Python / Node.js)
+
+When calling from a trusted server environment:
+
+```python
+from motionmesh import MotionMeshClient
+
+client = MotionMeshClient(api_key="mm_live_xxxxxxxxxxxxxxxx")
+videos = client.list_videos()
+```
+
+> **Never** use `MotionMeshClient` directly in browser-side code. Use the proxy pattern instead.

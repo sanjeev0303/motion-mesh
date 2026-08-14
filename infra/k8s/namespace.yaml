@@ -1,0 +1,22 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: motionmesh
+  labels:
+    name: motionmesh
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: motionmesh-api
+  namespace: motionmesh
+automountServiceAccountToken: false
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: motionmesh-worker
+  namespace: motionmesh
+automountServiceAccountToken: false

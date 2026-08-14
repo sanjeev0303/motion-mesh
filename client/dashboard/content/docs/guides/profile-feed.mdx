@@ -1,0 +1,142 @@
+---
+title: User Video Feed
+description: Build a per-user video feed using externalUserId.
+---
+
+# Per-User Video Feed
+
+Build a video profile feed where each user only sees their own videos.
+
+## Overview
+
+MotionMesh supports scoping videos to individual users via `externalUserId`. This is your auth system's user ID (Clerk's `userId`, Auth0's `sub`, Supabase's `auth.uid()`, etc.).
+
+```
+Upload with externalUserId="user_abc" → stored in your account
+Fetch with externalUserId="user_abc" → returns only that user's videos
+```
+
+## 1. Upload with user scoping
+
+```tsx
+// app/upload/page.tsx
+"use client";
+import { useUser } from "@clerk/nextjs"; // or your auth hook
+import { motionmesh } from "@motionmesh/sdk";
+
+export default function UploadPage() {
+  const { user } = useUser();
+
+  const handleUpload = async (videoFile: File, thumbFile: File) => {
+    await motionmesh.uploadVideo({
+      video: videoFile,
+      thumbnail: thumbFile,
+      title: videoFile.name,
+      externalUserId: user!.id,  // ← ties this video to the user
+    });
+  };
+
+  return <input type="file" accept="video/*" onChange={(e) => {
+    const f = e.target.files?.[0];
+    if (f) handleUpload(f, f);
+  }} />;
+}
+```
+
+## 2. Fetch and display the feed
+
+```tsx
+// app/profile/[userId]/page.tsx
+"use client";
+import { useEffect, useState } from "react";
+import { motionmesh } from "@motionmesh/sdk";
+import { MotionMeshPlayer } from "@motionmesh/player/react";
+
+type Video = {
+  id: string;
+  title: string;
+  status: string;
+  thumbnail_key?: string;
+};
+
+export default function ProfileFeed({ params }: { params: { userId: string } }) {
+  const [videos, setVideos] = useState<Video[]>([]);
+
+  useEffect(() => {
+    motionmesh.videos
+      .listByUser({ externalUserId: params.userId, limit: 20 })
+      .then(setVideos);
+  }, [params.userId]);
+
+  return (
+    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      {videos.map((v) => (
+        <div key={v.id} className="rounded-lg overflow-hidden border">
+          {v.status === "ready" ? (
+            <MotionMeshPlayer
+              src={`https://api.motionmesh.co.in/v1/videos/${v.id}/hls/master.m3u8`}
+              poster={v.thumbnail_key
+                ? `https://api.motionmesh.co.in/v1/buckets/default/objects/${v.thumbnail_key}`
+                : undefined}
+            />
+          ) : (
+            <div className="aspect-video bg-gray-100 flex items-center justify-center text-sm text-gray-400">
+              {v.status}
+            </div>
+          )}
+          <p className="p-2 font-medium truncate">{v.title}</p>
+        </div>
+      ))}
+    </div>
+  );
+}
+```
+
+## 3. Paginate the feed
+
+```tsx
+const [cursor, setCursor] = useState<string | undefined>();
+
+const loadMore = async () => {
+  const nextPage = await motionmesh.videos.listByUser({
+    externalUserId: userId,
+    limit: 10,
+    cursor,
+  });
+
+  setVideos((prev) => [...prev, ...nextPage]);
+  // The last video's ID is the next cursor
+  if (nextPage.length > 0) {
+    setCursor(nextPage[nextPage.length - 1].id);
+  }
+};
+```
+
+## 4. Auto-inject user ID via proxy (recommended)
+
+Instead of passing `externalUserId` from the client, inject it server-side:
+
+```ts
+// app/api/motionmesh/route.ts
+import { auth } from "@clerk/nextjs/server";
+import { handleMotionmeshProxy } from "@motionmesh/sdk/proxy/nextjs";
+
+export async function POST(req: NextRequest) {
+  const { userId } = auth();
+  if (!userId) return new Response("Unauthorized", { status: 401 });
+
+  // SDK will automatically attach the user ID — client doesn't need to
+  return handleMotionmeshProxy(req, { injectExternalUserId: userId });
+}
+```
+
+Now the client doesn't need to pass `externalUserId` at all:
+
+```tsx
+await motionmesh.uploadVideo({ video: f, thumbnail: t, title: "Demo" });
+// Server proxy injects the Clerk userId automatically
+```
+
+## Security note
+
+Always validate `externalUserId` ownership on the server. If you let the client specify any `externalUserId`, a user could list another user's videos. The proxy injection pattern above solves this — the server derives the ID from the verified session.

@@ -1,0 +1,6 @@
+#!/usr/bin/expect -f
+set timeout -1
+spawn npx -y create-fumadocs-app@latest docs --install --no-git --template +next+fuma-docs-mdx --pm npm --src --linter eslint --search orama --og-image next-og
+expect "Configure AI Chat"
+send "\r"
+expect eof

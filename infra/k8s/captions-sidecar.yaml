@@ -1,0 +1,73 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: captions-sidecar
+  labels:
+    app: captions-sidecar
+spec:
+  replicas: 10
+  selector:
+    matchLabels:
+      app: captions-sidecar
+  template:
+    metadata:
+      labels:
+        app: captions-sidecar
+    spec:
+      containers:
+      - name: captions-sidecar
+        image: motionmesh/captions-sidecar:latest
+        ports:
+        - containerPort: 8000
+        envFrom:
+        - secretRef:
+            name: motionmesh-secrets
+        resources:
+          requests:
+            cpu: "2"
+            memory: "4Gi"
+          limits:
+            cpu: "4"
+            memory: "8Gi"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: captions-sidecar-service
+spec:
+  selector:
+    app: captions-sidecar
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: 8000
+  type: ClusterIP
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: captions-sidecar-hpa
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: captions-sidecar
+  minReplicas: 10
+  maxReplicas: 50
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 70
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: captions-sidecar-pdb
+spec:
+  minAvailable: 70%
+  selector:
+    matchLabels:
+      app: captions-sidecar

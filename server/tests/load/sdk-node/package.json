@@ -1,0 +1,9 @@
+{
+  "name": "sdk-node-load-test",
+  "version": "1.0.0",
+  "type": "module",
+  "dependencies": {
+    "@motionmesh/sdk": "file:../../../../sdk/js/packages/sdk",
+    "axios": "^1.7.9"
+  }
+}

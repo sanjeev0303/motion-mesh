@@ -1,0 +1,6 @@
+{
+  "dependencies": {
+    "@motionmesh/sdk": "file:sdk/js/packages/sdk",
+    "pg": "^8.23.0"
+  }
+}

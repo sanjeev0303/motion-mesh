@@ -1,0 +1,110 @@
+services:
+  redis:
+    image: redis:7-alpine
+    container_name: motionmesh-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  nats:
+    image: nats:2.10-alpine
+    container_name: motionmesh-nats
+    command: ["-js"]
+    ports:
+      - "4222:4222"
+      - "8222:8222"
+    volumes:
+      - nats_data:/data
+    healthcheck:
+      test: ["CMD", "nc", "-z", "localhost", "4222"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build:
+      context: ./server
+      dockerfile: ./api/Dockerfile
+      # Cache Go module downloads across builds
+      cache_from:
+        - type=local,src=.buildcache/api
+      cache_to:
+        - type=local,dest=.buildcache/api,mode=max
+    container_name: motionmesh-api
+    env_file: ./server/.env
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+      - QUEUE_URL=nats://nats:4222
+      - CAPTIONS_SIDECAR_URL=http://captions-sidecar:8000
+      - PUBLIC_API_URL=http://localhost:8080
+    depends_on:
+      redis:
+        condition: service_healthy
+      nats:
+        condition: service_healthy
+    ports:
+      - "8080:8080"
+    restart: unless-stopped
+
+  worker:
+    build:
+      context: ./server
+      dockerfile: ./worker/Dockerfile
+      cache_from:
+        - type=local,src=.buildcache/worker
+      cache_to:
+        - type=local,dest=.buildcache/worker,mode=max
+    container_name: motionmesh-worker
+    env_file: ./server/.env
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+      - QUEUE_URL=nats://nats:4222
+      - CAPTIONS_SIDECAR_URL=http://captions-sidecar:8000
+    depends_on:
+      redis:
+        condition: service_healthy
+      nats:
+        condition: service_healthy
+    restart: unless-stopped
+
+  captions-sidecar:
+    build:
+      context: ./server
+      dockerfile: ./captions-sidecar/Dockerfile
+      cache_from:
+        - type=local,src=.buildcache/captions
+      cache_to:
+        - type=local,dest=.buildcache/captions,mode=max
+    container_name: motionmesh-captions-sidecar
+    env_file: ./server/.env
+    environment: []
+    ports:
+      - "8000:8000"
+    mem_limit: 4g
+    restart: unless-stopped
+
+  client:
+    build:
+      context: .
+      dockerfile: ./client/dashboard/Dockerfile
+      cache_from:
+        - type=local,src=.buildcache/client
+      cache_to:
+        - type=local,dest=.buildcache/client,mode=max
+    container_name: motionmesh-client
+    env_file: ./client/dashboard/.env.local
+    depends_on:
+      - api
+    ports:
+      - "3000:3000"
+    restart: unless-stopped
+
+volumes:
+  redis_data:
+  nats_data:

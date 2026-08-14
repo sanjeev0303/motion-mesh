@@ -1,0 +1,57 @@
+---
+title: Changelog
+description: Recent releases, new features, and breaking changes.
+---
+
+# Changelog
+
+## v0.4.0 — 2026-07-29
+
+### Added
+- **`captions_status` field** on all video responses (`pending` | `processing` | `ready` | `failed`) with a color-coded badge on the Video Details page.
+- **`generateSubtitles` upload option** — triggers automatic Whisper transcription on upload.
+- **Chapter generation** — auto-generated chapter markers for videos longer than 3 minutes.
+- **`videos.listByUser`** on the JS SDK for per-user video feeds.
+
+### Changed
+- Worker captions pipeline isolated from the main transcode `errgroup` — transcription failure no longer fails the entire job.
+
+### Fixed
+- Removed all `MOCK_*` data from dashboard pages — all data fetched from live APIs.
+- Upload now sends the real file bytes to the presigned storage URL.
+
+---
+
+## v0.3.0 — 2026-07-26
+
+### Added
+
+- **Player branding** — upload a custom watermark logo; configure position and opacity.
+- `@motionmesh/player` — React video player built on Vidstack with HLS, captions, and sprite preview.
+
+### Fixed
+- `401` / `403` / `429` API error handling added to all dashboard data hooks.
+- Sidebar plan badge now updates in real-time after Stripe webhook delivery.
+
+---
+
+## v0.2.0 — 2026-07-20
+
+### Added
+- **Analytics dashboard** — real-time play counts, watch time, and geographic breakdown.
+- `@videon/player` SDK integration on the Video Details page.
+- `useBilling` hook with live invoice list and subscription status.
+
+### Fixed
+- BigInt serialization error in `/v1/billing/invoices` response pipeline.
+
+---
+
+## v0.1.0 — 2026-07-18
+
+### Added
+- Initial scaffold: Go API, Go worker, Python captions sidecar, Next.js dashboard.
+- Docker Compose stack: Postgres, Redis, NATS JetStream, MinIO.
+- Clerk authentication across API and dashboard.
+- Video upload → transcode → HLS ABR ladder pipeline.
+- Stripe billing with webhook sync.

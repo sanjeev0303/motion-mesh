@@ -1,0 +1,24 @@
+[tool.poetry]
+name = "captions-sidecar"
+version = "0.1.0"
+description = "FastAPI sidecar for faster-whisper transcribing"
+authors = ["MotionMesh Team"]
+readme = "README.md"
+packages = [{include = "app"}]
+[tool.poetry.dependencies]
+python = "^3.11"
+fastapi = "^0.110.0"
+uvicorn = "^0.28.0"
+faster-whisper = "^1.0.0"
+langchain = "^0.3.0"
+langchain-google-genai = "^1.0.0"
+python-multipart = "^0.0.9"
+python-dotenv = "^1.0.1"
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^8.0.0"
+httpx = "^0.27.0"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"

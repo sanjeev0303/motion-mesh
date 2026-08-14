@@ -1,0 +1,113 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: nats
+  namespace: motionmesh
+  labels:
+    app: nats
+spec:
+  serviceName: "nats"
+  replicas: 3
+  selector:
+    matchLabels:
+      app: nats
+  template:
+    metadata:
+      labels:
+        app: nats
+    spec:
+      nodeSelector:
+        NodeGroup: system
+      topologySpreadConstraints:
+      - maxSkew: 1
+        topologyKey: topology.kubernetes.io/zone
+        whenUnsatisfiable: DoNotSchedule
+        labelSelector:
+          matchLabels:
+            app: nats
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+          - labelSelector:
+              matchLabels:
+                app: nats
+            topologyKey: "kubernetes.io/hostname"
+      terminationGracePeriodSeconds: 60
+      containers:
+      - name: nats
+        image: nats:2.10.14-alpine@sha256:81f36bfe9dfef7cd3768abaf55fc309123cf6bf1cb0d8305a6700ff36034b93b
+        ports:
+        - containerPort: 4222
+          name: client
+        - containerPort: 6222
+          name: cluster
+        - containerPort: 8222
+          name: monitor
+        args:
+          - "-js"
+          - "--store_dir=/data/jetstream"
+          - "--cluster"
+          - "nats://0.0.0.0:6222"
+          - "--routes"
+          - "nats://nats-0.nats.motionmesh.svc.cluster.local:6222,nats://nats-1.nats.motionmesh.svc.cluster.local:6222,nats://nats-2.nats.motionmesh.svc.cluster.local:6222"
+        resources:
+          requests:
+            cpu: "500m"
+            memory: "512Mi"
+          limits:
+            cpu: "2000m"
+            memory: "2Gi"
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: 8222
+          initialDelaySeconds: 10
+          periodSeconds: 15
+        readinessProbe:
+          httpGet:
+            path: /healthz?js-enabled-only=true
+            port: 8222
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        volumeMounts:
+        - name: jetstream-data
+          mountPath: /data/jetstream
+  volumeClaimTemplates:
+  - metadata:
+      name: jetstream-data
+    spec:
+      accessModes: ["ReadWriteOnce"]
+      storageClassName: gp3
+      resources:
+        requests:
+          storage: 50Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: nats
+  namespace: motionmesh
+  labels:
+    app: nats
+spec:
+  ports:
+  - port: 4222
+    name: client
+  - port: 6222
+    name: cluster
+  - port: 8222
+    name: monitor
+  clusterIP: None
+  selector:
+    app: nats
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: nats-pdb
+  namespace: motionmesh
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app: nats
