@@ -29,12 +29,12 @@ curl -sI "https://$S3_BUCKET.s3.amazonaws.com/test.txt" | head -n 1 | grep "403 
 echo "[OK] S3 Direct Public Access Blocked"
 
 echo "5. Kubernetes Workload Verification..."
-kubectl get pods -n motionmesh -l app=motionmesh-api | grep "Running" || (echo "API Pods not running" && exit 1)
-kubectl get pods -n motionmesh -l app=motionmesh-worker | grep "Running" || (echo "Worker Pods not running" && exit 1)
+kubectl get pods -n motionmesh -l app=api | grep "Running" || (echo "API Pods not running" && exit 1)
+kubectl get pods -n motionmesh -l app=worker | grep "Running" || (echo "Worker Pods not running" && exit 1)
 echo "[OK] K8s Workloads are Running"
 
 echo "6. Database Connection Wiring..."
-API_POD=$(kubectl get pod -n motionmesh -l app=motionmesh-api -o jsonpath="{.items[0].metadata.name}")
+API_POD=$(kubectl get pod -n motionmesh -l app=api -o jsonpath="{.items[0].metadata.name}")
 kubectl exec -it -n motionmesh $API_POD -- env | grep DATABASE_URL || (echo "DATABASE_URL not found in pod" && exit 1)
 echo "[OK] Secrets Injected into Pods"
 

@@ -78,3 +78,8 @@ terraform.rc
 tests/load/k6/data.json
 docs/benchmarks/
 docs/benchmark
+
+# MAIN 36 Ignore Additions
+*.tfplan
+*.tsbuildinfo
+*.bin

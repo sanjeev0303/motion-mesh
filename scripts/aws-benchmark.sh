@@ -56,9 +56,52 @@ while true; do
     sleep 5
 done
 
-# TODO: Collect metrics and aggregate results
-echo "Collecting metrics..."
-# bash scripts/collect-metrics.sh $COMMAND_ID
+# Collect metrics
+echo "Fetching results from instances..."
+mkdir -p benchmark-results
+TIMESTAMP=$(date +%s)
+TOTAL_SUCCESSFUL=0
+TOTAL_DURATION=0
+TOTAL_DROPPED=0
 
-echo "Aggregation complete."
+for INSTANCE in $INSTANCE_IDS; do
+    echo "Fetching output from $INSTANCE..."
+    aws ssm get-command-invocation \
+        --command-id $COMMAND_ID \
+        --instance-id $INSTANCE \
+        --query "StandardOutputContent" \
+        --output text > benchmark-results/${TIMESTAMP}-${INSTANCE}.log
+        
+    # Naive bash extraction for demonstration (Assuming script prints standard logs)
+    SUCCESS=$(grep "Successful requests" benchmark-results/${TIMESTAMP}-${INSTANCE}.log | awk '{print $3}' || echo "0")
+    DURATION=$(grep "Duration" benchmark-results/${TIMESTAMP}-${INSTANCE}.log | awk '{print $2}' || echo "0")
+    DROPPED=$(grep "Dropped" benchmark-results/${TIMESTAMP}-${INSTANCE}.log | awk '{print $3}' || echo "0")
+    
+    TOTAL_SUCCESSFUL=$(echo "$TOTAL_SUCCESSFUL + $SUCCESS" | bc)
+    TOTAL_DURATION=$(echo "$TOTAL_DURATION + $DURATION" | bc)
+    TOTAL_DROPPED=$(echo "$TOTAL_DROPPED + $DROPPED" | bc)
+done
+
+# We average the durations to find the concurrent test window
+AVG_DURATION=$(echo "scale=2; $TOTAL_DURATION / $GENERATOR_COUNT" | bc)
+AGGREGATE_RPS=$(echo "scale=2; $TOTAL_SUCCESSFUL / $AVG_DURATION" | bc)
+
+echo "=== AGGREGATED BENCHMARK RESULT ==="
+echo "Total Successful:  $TOTAL_SUCCESSFUL"
+echo "Total Dropped:     $TOTAL_DROPPED"
+echo "Average Duration:  ${AVG_DURATION}s"
+echo "Aggregate RPS:     $AGGREGATE_RPS"
+
+# Save final result for report generator
+cat << EOF > benchmark-results/${TIMESTAMP}-summary.json
+{
+    "target_rps": $TARGET_RPS,
+    "actual_rps": $AGGREGATE_RPS,
+    "successful": $TOTAL_SUCCESSFUL,
+    "dropped": $TOTAL_DROPPED,
+    "duration": $AVG_DURATION
+}
+EOF
+
+echo "Aggregation complete. Result saved to benchmark-results/${TIMESTAMP}-summary.json"
 echo "===================================================================="

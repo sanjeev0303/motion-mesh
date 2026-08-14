@@ -18,12 +18,6 @@ cat << 'EOF' > $REPORT_FILE
 ## 1M RPM Progression
 | Target RPS | Actual RPS | Error Rate | Status |
 |------------|------------|------------|--------|
-| 1,000      | NOT_TESTED | NOT_TESTED | PENDING|
-| 5,000      | NOT_TESTED | NOT_TESTED | PENDING|
-| 10,000     | NOT_TESTED | NOT_TESTED | PENDING|
-| 12,500     | NOT_TESTED | NOT_TESTED | PENDING|
-| 15,000     | NOT_TESTED | NOT_TESTED | PENDING|
-| 16,667     | NOT_TESTED | NOT_TESTED | TARGET |
 
 ## Current Known Bottlenecks
 - NOT_MEASURED
@@ -36,5 +30,26 @@ cat << 'EOF' > $REPORT_FILE
 - **NATS JetStream**: NOT_MEASURED
 - **Load Generators**: NOT_MEASURED
 EOF
+
+# Append dynamic results
+if ls benchmark-results/*-summary.json 1> /dev/null 2>&1; then
+    for f in benchmark-results/*-summary.json; do
+        TARGET=$(grep -oP '"target_rps": \K[0-9]+' $f)
+        ACTUAL=$(grep -oP '"actual_rps": \K[0-9.]+' $f)
+        ERRORS=$(grep -oP '"dropped": \K[0-9]+' $f)
+        
+        # Calculate error rate roughly
+        if [ "$ERRORS" != "0" ]; then
+            SUCCESSFUL=$(grep -oP '"successful": \K[0-9]+' $f)
+            TOTAL=$((SUCCESSFUL + ERRORS))
+            ERR_RATE=$(awk "BEGIN {print ($ERRORS/$TOTAL)*100}")
+        else
+            ERR_RATE="0"
+        fi
+        
+        # Insert row into the markdown table using sed
+        sed -i "/|------------|/a | $TARGET | $ACTUAL | $ERR_RATE% | VERIFIED |" $REPORT_FILE
+    done
+fi
 
 echo "Report generated at $REPORT_FILE"

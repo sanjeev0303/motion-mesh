@@ -12,10 +12,13 @@ echo "Starting MotionMesh E2E Deployment (aws-up.sh)"
 echo "===================================================================="
 
 # 1. Preflight
-if ! command -v terraform &> /dev/null || ! command -v aws &> /dev/null || ! command -v kubectl &> /dev/null || ! command -v helm &> /dev/null; then
-    echo "ERROR: terraform, aws, kubectl, and helm must be installed."
+if ! command -v terraform &> /dev/null || ! command -v aws &> /dev/null || ! command -v kubectl &> /dev/null || ! command -v helm &> /dev/null || ! command -v envsubst &> /dev/null; then
+    echo "ERROR: terraform, aws, kubectl, helm, and envsubst must be installed."
     exit 1
 fi
+
+GIT_SHA=$(git rev-parse --short HEAD)
+echo "Deploying Git SHA: $GIT_SHA"
 
 # 2. AWS Identity Check
 echo "Checking AWS Identity..."
@@ -110,27 +113,71 @@ kubectl apply -f infra/k8s/migrations-job.yaml
 kubectl wait --for=condition=complete job/motionmesh-migrations -n motionmesh --timeout=300s
 
 # 15-21. Build, Push & Deploy Workloads
-echo "Building and Pushing Docker Images..."
-API_REPO=$(cd $TF_DIR && terraform output -raw api_ecr_repository_url)
-WORKER_REPO=$(cd $TF_DIR && terraform output -raw worker_ecr_repository_url)
+echo "Fetching Terraform Outputs for Kubernetes Rendering..."
+cd $TF_DIR
+export EKS_CLUSTER=$(terraform output -raw cluster_name || echo "")
+export API_REPO=$(terraform output -raw api_ecr_repository_url || echo "")
+export WORKER_REPO=$(terraform output -raw worker_ecr_repository_url || echo "")
+export AURORA_ENDPOINT=$(terraform output -raw aurora_endpoint || echo "")
+export REDIS_ENDPOINT=$(terraform output -raw redis_endpoint || echo "")
+export S3_BUCKET_ID=$(terraform output -raw s3_bucket_id || echo "")
+export S3_BUCKET_REGION=$(terraform output -raw s3_bucket_region || echo "us-east-1")
+export CLOUDFRONT_DISTRIBUTION_DOMAIN=$(terraform output -raw cloudfront_domain_name || echo "")
+export CLOUDFRONT_MEDIA_DOMAIN=$(terraform output -raw cloudfront_media_domain || echo "")
+export ACM_CERTIFICATE_ARN=$(terraform output -raw acm_certificate_arn || echo "")
+export WAF_ACL_ARN=$(terraform output -raw waf_acl_arn || echo "")
+export ALB_SG_ID=$(terraform output -raw alb_security_group_id || echo "")
+export API_DOMAIN=$(terraform output -raw api_domain || echo "")
+export DB_SECRET_ARN=$(terraform output -raw db_secret_arn || echo "")
+export ENVIRONMENT=$ENV
+export AWS_REGION=$REGION
+export COOKIE_DOMAIN=".motionmesh.co.in"
+export ALLOWED_ORIGINS="https://app.motionmesh.co.in"
+export BENCHMARK_MODE="true"
+export STRIPE_MODE="mock"
+export AI_MODE="mock"
+export API_IMAGE_URI="${API_REPO}:${GIT_SHA}"
+export WORKER_IMAGE_URI="${WORKER_REPO}:${GIT_SHA}"
+cd ../../../..
 
+echo "Building and Pushing Docker Images..."
 aws ecr get-login-password --region $REGION | docker login --username AWS --password-stdin $AWS_ACCOUNT_ID.dkr.ecr.$REGION.amazonaws.com
 
-docker build -t $API_REPO:latest -f server/api.Dockerfile .
-docker push $API_REPO:latest
+docker build -t $API_IMAGE_URI -f server/api.Dockerfile .
+docker push $API_IMAGE_URI
 
-docker build -t $WORKER_REPO:latest -f server/worker.Dockerfile .
-docker push $WORKER_REPO:latest
+docker build -t $WORKER_IMAGE_URI -f server/worker.Dockerfile .
+docker push $WORKER_IMAGE_URI
 
-echo "Deploying API and Workers..."
-kubectl apply -f infra/k8s/api-deployment.yaml
-kubectl apply -f infra/k8s/worker-deployment.yaml
-kubectl apply -f infra/k8s/ingress.yaml
+echo "Rendering Kubernetes Manifests..."
+rm -rf infra/rendered
+mkdir -p infra/rendered
+
+envsubst < infra/k8s/configmap.yaml > infra/rendered/configmap.yaml
+envsubst < infra/k8s/api.yaml > infra/rendered/api.yaml
+envsubst < infra/k8s/worker.yaml > infra/rendered/worker.yaml
+envsubst < infra/k8s/ingress.yaml > infra/rendered/ingress.yaml
+
+echo "Validating Placeholders..."
+if grep -r '\${' infra/rendered/; then
+    echo "ERROR: Unrendered placeholders found in manifests!"
+    exit 1
+fi
+if grep -r -E 'localhost|127\.0\.0\.1|motionmesh\.com|motionmesh\.io' infra/rendered/; then
+    echo "ERROR: Invalid domains found in rendered manifests!"
+    exit 1
+fi
+
+echo "Deploying Configuration, API, and Workers..."
+kubectl apply -f infra/rendered/configmap.yaml
+kubectl apply -f infra/rendered/api.yaml
+kubectl apply -f infra/rendered/worker.yaml
+kubectl apply -f infra/rendered/ingress.yaml
 
 # Wait for deployments
 echo "Waiting for API and Workers to become ready..."
-kubectl wait --for=condition=available deployment/motionmesh-api -n motionmesh --timeout=600s
-kubectl wait --for=condition=available deployment/motionmesh-worker -n motionmesh --timeout=600s
+kubectl wait --for=condition=available deployment/api -n motionmesh --timeout=600s
+kubectl wait --for=condition=available deployment/worker -n motionmesh --timeout=600s
 
 echo "===================================================================="
 echo "Deployment Complete! Please run ./scripts/aws-smoke.sh to verify."

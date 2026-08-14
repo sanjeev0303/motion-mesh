@@ -16,7 +16,7 @@ TF_S3=$(terraform output -raw s3_bucket_id)
 cd ../../../..
 
 echo "Fetching Kubernetes Pod Environment Variables..."
-API_POD=$(kubectl get pod -n $NAMESPACE -l app=motionmesh-api -o jsonpath="{.items[0].metadata.name}")
+API_POD=$(kubectl get pod -n $NAMESPACE -l app=api -o jsonpath="{.items[0].metadata.name}")
 K8S_AURORA=$(kubectl exec -n $NAMESPACE $API_POD -- printenv DATABASE_URL)
 K8S_REDIS=$(kubectl exec -n $NAMESPACE $API_POD -- printenv REDIS_URL)
 K8S_S3=$(kubectl exec -n $NAMESPACE $API_POD -- printenv STORAGE_BUCKET)

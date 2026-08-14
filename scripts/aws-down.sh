@@ -12,8 +12,8 @@ echo "===================================================================="
 if [ "$MODE" = "stop" ]; then
     echo "Mode: STOP"
     echo "Scaling down EKS workloads to save compute costs..."
-    kubectl scale deployment motionmesh-api -n motionmesh --replicas=0 || true
-    kubectl scale deployment motionmesh-worker -n motionmesh --replicas=0 || true
+    kubectl scale deployment api -n motionmesh --replicas=0 || true
+    kubectl scale deployment worker -n motionmesh --replicas=0 || true
     
     echo "Stopping any EC2 Load Generators..."
     INSTANCE_IDS=$(aws ec2 describe-instances --filters "Name=tag:Role,Values=LoadGenerator" "Name=instance-state-name,Values=running" --query "Reservations[*].Instances[*].InstanceId" --output text)
