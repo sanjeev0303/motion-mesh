@@ -1,9 +1,9 @@
 #!/bin/bash
-set -e
+set -euo pipefail
 
 TARGET_RPS=$1
 
-if [ -z "$TARGET_RPS" ]; then
+if [ -z "${TARGET_RPS}" ]; then
     echo "Usage: ./scripts/aws-benchmark.sh <TARGET_RPS>"
     echo "Example: ./scripts/aws-benchmark.sh 16667"
     exit 1
@@ -11,97 +11,92 @@ fi
 
 echo "===================================================================="
 echo "MotionMesh Benchmark Orchestrator (aws-benchmark.sh)"
-echo "Target: $TARGET_RPS RPS"
+echo "Target: ${TARGET_RPS} RPS"
 echo "===================================================================="
 
 # Validate Environment & Dataset
 echo "Validating environment and dataset..."
 node tests/load/k6/validate-data.js || exit 1
 
+# Bundle and upload to S3
+BUNDLE_NAME="benchmark-bundle-$(date +%s).tar.gz"
+echo "Creating S3 benchmark bundle ${BUNDLE_NAME}..."
+tar -czf "${BUNDLE_NAME}" server/ tests/
+aws s3 cp "${BUNDLE_NAME}" "s3://motionmesh-terraform-state-benchmark/${BUNDLE_NAME}"
+rm "${BUNDLE_NAME}"
+
 # Identify Load Generators
 echo "Discovering Load Generators..."
 INSTANCE_IDS=$(aws ec2 describe-instances --filters "Name=tag:Role,Values=LoadGenerator" "Name=instance-state-name,Values=running" --query "Reservations[*].Instances[*].InstanceId" --output text)
 
-if [ -z "$INSTANCE_IDS" ]; then
+if [ -z "${INSTANCE_IDS}" ]; then
     echo "ERROR: No running Load Generators found!"
     exit 1
 fi
 
-GENERATOR_COUNT=$(echo $INSTANCE_IDS | wc -w)
-echo "Found $GENERATOR_COUNT Load Generator(s): $INSTANCE_IDS"
+# Convert string of IDs to array
+read -r -a INSTANCE_ARRAY <<< "$INSTANCE_IDS"
+GENERATOR_COUNT=${#INSTANCE_ARRAY[@]}
 
-RPS_PER_GENERATOR=$(( TARGET_RPS / GENERATOR_COUNT ))
-echo "Distributing load: $RPS_PER_GENERATOR RPS per generator"
+echo "Found ${GENERATOR_COUNT} Load Generator(s): ${INSTANCE_IDS}"
 
-echo "Dispatching workloads via AWS Systems Manager (SSM)..."
-COMMAND_ID=$(aws ssm send-command \
-    --instance-ids $INSTANCE_IDS \
-    --document-name "AWS-RunShellScript" \
-    --parameters '{"commands":["cd /home/ec2-user/motionmesh/server && RPS_TIERS='$RPS_PER_GENERATOR' DURATION_SEC=60 MAX_CONCURRENCY=10000 node scripts/sdk_distributed_benchmark.js"]}' \
-    --query "Command.CommandId" \
-    --output text)
+# Distribute load (Floor division + remainder distribution)
+BASE_RPS=$(( TARGET_RPS / GENERATOR_COUNT ))
+REMAINDER=$(( TARGET_RPS % GENERATOR_COUNT ))
 
-echo "SSM Command ID: $COMMAND_ID"
-echo "Waiting for completion..."
+echo "Distributing load..."
+TEST_ID="test-$(date +%s)"
+mkdir -p "benchmark-results/${TEST_ID}"
 
-while true; do
-    STATUS=$(aws ssm list-commands --command-id $COMMAND_ID --query "Commands[0].Status" --output text)
-    if [ "$STATUS" = "Success" ]; then
-        echo "Benchmark workload completed successfully across all generators."
-        break
-    elif [ "$STATUS" = "Failed" ] || [ "$STATUS" = "DeliveryTimedOut" ] || [ "$STATUS" = "ExecutionTimedOut" ]; then
-        echo "ERROR: Benchmark workload failed ($STATUS). Check SSM logs."
-        exit 1
+for i in "${!INSTANCE_ARRAY[@]}"; do
+    INSTANCE="${INSTANCE_ARRAY[$i]}"
+    RPS=$BASE_RPS
+    if [ "$i" -lt "$REMAINDER" ]; then
+        RPS=$(( RPS + 1 ))
     fi
-    sleep 5
-done
+    echo "Generator ${INSTANCE}: ${RPS} RPS"
 
-# Collect metrics
-echo "Fetching results from instances..."
-mkdir -p benchmark-results
-TIMESTAMP=$(date +%s)
-TOTAL_SUCCESSFUL=0
-TOTAL_DURATION=0
-TOTAL_DROPPED=0
-
-for INSTANCE in $INSTANCE_IDS; do
-    echo "Fetching output from $INSTANCE..."
-    aws ssm get-command-invocation \
-        --command-id $COMMAND_ID \
-        --instance-id $INSTANCE \
-        --query "StandardOutputContent" \
-        --output text > benchmark-results/${TIMESTAMP}-${INSTANCE}.log
-        
-    # Naive bash extraction for demonstration (Assuming script prints standard logs)
-    SUCCESS=$(grep "Successful requests" benchmark-results/${TIMESTAMP}-${INSTANCE}.log | awk '{print $3}' || echo "0")
-    DURATION=$(grep "Duration" benchmark-results/${TIMESTAMP}-${INSTANCE}.log | awk '{print $2}' || echo "0")
-    DROPPED=$(grep "Dropped" benchmark-results/${TIMESTAMP}-${INSTANCE}.log | awk '{print $3}' || echo "0")
+    # Send SSM command to install bundle, run, and cat result.json
+    CMD="sudo mkdir -p /opt/motionmesh-benchmark && sudo chown ec2-user:ec2-user /opt/motionmesh-benchmark && cd /opt/motionmesh-benchmark && aws s3 cp s3://motionmesh-terraform-state-benchmark/${BUNDLE_NAME} . && tar -xzf ${BUNDLE_NAME} && cd server && npm install && INSTANCE_ID=${INSTANCE} RPS_TIERS=${RPS} DURATION_SEC=60 MAX_CONCURRENCY=10000 BENCHMARK_MODE=true node scripts/sdk_distributed_benchmark.js > /dev/null 2>&1 && cat scripts/result.json"
     
-    TOTAL_SUCCESSFUL=$(echo "$TOTAL_SUCCESSFUL + $SUCCESS" | bc)
-    TOTAL_DURATION=$(echo "$TOTAL_DURATION + $DURATION" | bc)
-    TOTAL_DROPPED=$(echo "$TOTAL_DROPPED + $DROPPED" | bc)
+    CMD_ID=$(aws ssm send-command \
+        --instance-ids "${INSTANCE}" \
+        --document-name "AWS-RunShellScript" \
+        --parameters '{"commands":["'"${CMD}"'"]}' \
+        --query "Command.CommandId" \
+        --output text)
+        
+    echo "Dispatched to ${INSTANCE} -> CommandID: ${CMD_ID}"
+    # Save the command ID mapped to the instance for tracking
+    echo "${CMD_ID}" > "benchmark-results/${TEST_ID}/.${INSTANCE}.cmd"
 done
 
-# We average the durations to find the concurrent test window
-AVG_DURATION=$(echo "scale=2; $TOTAL_DURATION / $GENERATOR_COUNT" | bc)
-AGGREGATE_RPS=$(echo "scale=2; $TOTAL_SUCCESSFUL / $AVG_DURATION" | bc)
+echo "Waiting for all instances to complete execution..."
 
-echo "=== AGGREGATED BENCHMARK RESULT ==="
-echo "Total Successful:  $TOTAL_SUCCESSFUL"
-echo "Total Dropped:     $TOTAL_DROPPED"
-echo "Average Duration:  ${AVG_DURATION}s"
-echo "Aggregate RPS:     $AGGREGATE_RPS"
+FAILED=0
+for INSTANCE in "${INSTANCE_ARRAY[@]}"; do
+    CMD_ID=$(cat "benchmark-results/${TEST_ID}/.${INSTANCE}.cmd")
+    while true; do
+        STATUS=$(aws ssm list-command-invocations --command-id "${CMD_ID}" --instance-id "${INSTANCE}" --query "CommandInvocations[0].Status" --output text)
+        if [ "$STATUS" = "Success" ]; then
+            echo "Instance ${INSTANCE} completed successfully."
+            aws ssm get-command-invocation --command-id "${CMD_ID}" --instance-id "${INSTANCE}" --query "StandardOutputContent" --output text > "benchmark-results/${TEST_ID}/${INSTANCE}-result.json"
+            break
+        elif [ "$STATUS" = "Failed" ] || [ "$STATUS" = "DeliveryTimedOut" ] || [ "$STATUS" = "ExecutionTimedOut" ]; then
+            echo "ERROR: Instance ${INSTANCE} failed (${STATUS})."
+            FAILED=1
+            break
+        fi
+        sleep 5
+    done
+done
 
-# Save final result for report generator
-cat << EOF > benchmark-results/${TIMESTAMP}-summary.json
-{
-    "target_rps": $TARGET_RPS,
-    "actual_rps": $AGGREGATE_RPS,
-    "successful": $TOTAL_SUCCESSFUL,
-    "dropped": $TOTAL_DROPPED,
-    "duration": $AVG_DURATION
-}
-EOF
+if [ "$FAILED" -eq 1 ]; then
+    echo "ERROR: Benchmark failed due to instance failure."
+    exit 1
+fi
 
-echo "Aggregation complete. Result saved to benchmark-results/${TIMESTAMP}-summary.json"
-echo "===================================================================="
+echo "All generators finished. Aggregating results..."
+node scripts/aggregate-results.js "benchmark-results/${TEST_ID}"
+
+echo "Benchmark completed: benchmark-results/${TEST_ID}"

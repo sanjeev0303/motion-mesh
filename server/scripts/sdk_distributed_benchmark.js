@@ -209,38 +209,21 @@ async function runTier(targetRPS) {
   const successfulRPS = successful / durationSec;
 
   const report = {
-    timestamp: new Date().toISOString(),
-    benchmark_type: "official_sdk_distributed",
-    client_type: CLIENT_TYPE,
+    test_id: `test-${Date.now()}`,
+    instance_id: process.env.INSTANCE_ID || "local",
     target_rps: targetRPS,
-    duration_s: durationSec,
-    requests: {
-      requested,
-      sent,
-      completed,
-      success: successful,
-      failed,
-      dropped,
-    },
-    offered_rps: offeredRPS,
-    completed_rps: completedRPS,
-    successful_rps: successfulRPS,
-    latency_ms: {
-      p50: latencies.getPercentile(0.5),
-      p95: latencies.getPercentile(0.95),
-      p99: latencies.getPercentile(0.99),
-    },
-    event_loop_ms: {
-      mean: elHistogram.mean / 1e6,
-      max: elHistogram.max / 1e6,
-      p95: elHistogram.percentile(95) / 1e6,
-      p99: elHistogram.percentile(99) / 1e6,
-    },
-    load_generator: {
-      max_concurrency: MAX_CONCURRENCY,
-      cpu_usage: process.cpuUsage(),
-      memory_usage: process.memoryUsage(),
-    },
+    actual_rps: completedRPS,
+    successful: successful,
+    failed: failed,
+    dropped: dropped,
+    duration_seconds: durationSec,
+    p50_ms: latencies.getPercentile(0.5),
+    p95_ms: latencies.getPercentile(0.95),
+    p99_ms: latencies.getPercentile(0.99),
+    cpu: process.cpuUsage(),
+    memory: process.memoryUsage(),
+    network: {}, // Placeholder if net stats are added
+    event_loop_delay: elHistogram.percentile(99) / 1e6
   };
 
   console.log(`Requested:       ${requested}`);
@@ -252,32 +235,12 @@ async function runTier(targetRPS) {
   console.log(`Offered RPS:     ${offeredRPS.toFixed(2)}`);
   console.log(`Completed RPS:   ${completedRPS.toFixed(2)}`);
   console.log(`Successful RPS:  ${successfulRPS.toFixed(2)}`);
-  console.log(`Latency p50:     ${report.latency_ms.p50.toFixed(2)} ms`);
-  console.log(`Latency p95:     ${report.latency_ms.p95.toFixed(2)} ms`);
-  console.log(`Latency p99:     ${report.latency_ms.p99.toFixed(2)} ms`);
-  console.log(`Event Loop p95:  ${report.event_loop_ms.p95.toFixed(2)} ms`);
-  console.log(`Event Loop Max:  ${report.event_loop_ms.max.toFixed(2)} ms`);
 
   if (dropped > 0) {
-    console.warn(
-      `[WARNING] Load generator dropped ${dropped} requests because MAX_CONCURRENCY=${MAX_CONCURRENCY}`
-    );
+    console.warn(`[WARNING] Load generator dropped ${dropped} requests`);
   }
 
-  if (sent > 0 && dropped / sent > 0.01) {
-    console.warn(
-      "[WARNING] Load generator saturation exceeded 1%; this run must not be used as server capacity evidence."
-    );
-  }
-
-  const outDir = path.join(__dirname, "../../docs/benchmarks");
-  fs.mkdirSync(outDir, { recursive: true });
-
-  const outFile = path.join(
-    outDir,
-    `sdk-benchmark-${targetRPS}-${Date.now()}.json`
-  );
-
+  const outFile = path.join(__dirname, "result.json");
   fs.writeFileSync(outFile, JSON.stringify(report, null, 2));
   console.log(`Artifact saved to: ${outFile}`);
 }

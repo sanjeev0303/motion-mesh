@@ -1,5 +1,5 @@
 #!/bin/bash
-set -e
+set -euo pipefail
 
 # MOTIONMESH E2E DEPLOYMENT SCRIPT
 
@@ -12,8 +12,8 @@ echo "Starting MotionMesh E2E Deployment (aws-up.sh)"
 echo "===================================================================="
 
 # 1. Preflight
-if ! command -v terraform &> /dev/null || ! command -v aws &> /dev/null || ! command -v kubectl &> /dev/null || ! command -v helm &> /dev/null || ! command -v envsubst &> /dev/null; then
-    echo "ERROR: terraform, aws, kubectl, helm, and envsubst must be installed."
+if ! command -v terraform &> /dev/null || ! command -v aws &> /dev/null || ! command -v kubectl &> /dev/null || ! command -v helm &> /dev/null || ! command -v envsubst &> /dev/null || ! command -v docker &> /dev/null || ! command -v node &> /dev/null; then
+    echo "ERROR: terraform, aws, kubectl, helm, envsubst, docker, and node must be installed."
     exit 1
 fi
 
@@ -27,16 +27,28 @@ echo "AWS Account: $AWS_ACCOUNT_ID Region: $REGION"
 
 # 3, 4, 5, 6. Terraform
 echo "Applying Terraform..."
-cd $TF_DIR
+cd "${TF_DIR}"
 terraform init
 terraform validate
-# We assume the user has configured backend and vars
-terraform apply -auto-approve
+
+echo "Planning Terraform..."
+terraform plan -out=tfplan
+
+echo "Applying Terraform (15m Lock Timeout)..."
+if ! terraform apply -lock-timeout=15m -input=false -auto-approve tfplan; then
+    echo "===================================================================="
+    echo "ERROR: Terraform Apply Failed."
+    echo "If this is a state lock issue, DO NOT bypass the lock automatically."
+    echo "Please run: ./scripts/terraform-lock-status.sh ${ENV}"
+    echo "To investigate active locks."
+    echo "===================================================================="
+    exit 1
+fi
 cd ../../../..
 
 # 7. Wait for EKS
 echo "Updating kubeconfig..."
-aws eks update-kubeconfig --region $REGION --name "motionmesh-$ENV"
+aws eks update-kubeconfig --region "${REGION}" --name "motionmesh-${ENV}"
 
 echo "Waiting for EKS Nodes to become ready..."
 kubectl wait --for=condition=Ready nodes --all --timeout=600s
@@ -114,7 +126,7 @@ kubectl wait --for=condition=complete job/motionmesh-migrations -n motionmesh --
 
 # 15-21. Build, Push & Deploy Workloads
 echo "Fetching Terraform Outputs for Kubernetes Rendering..."
-cd $TF_DIR
+cd "${TF_DIR}"
 export EKS_CLUSTER=$(terraform output -raw cluster_name || echo "")
 export API_REPO=$(terraform output -raw api_ecr_repository_url || echo "")
 export WORKER_REPO=$(terraform output -raw worker_ecr_repository_url || echo "")
@@ -129,8 +141,8 @@ export WAF_ACL_ARN=$(terraform output -raw waf_acl_arn || echo "")
 export ALB_SG_ID=$(terraform output -raw alb_security_group_id || echo "")
 export API_DOMAIN=$(terraform output -raw api_domain || echo "")
 export DB_SECRET_ARN=$(terraform output -raw db_secret_arn || echo "")
-export ENVIRONMENT=$ENV
-export AWS_REGION=$REGION
+export ENVIRONMENT="${ENV}"
+export AWS_REGION="${REGION}"
 export COOKIE_DOMAIN=".motionmesh.co.in"
 export ALLOWED_ORIGINS="https://app.motionmesh.co.in"
 export BENCHMARK_MODE="true"
@@ -141,13 +153,13 @@ export WORKER_IMAGE_URI="${WORKER_REPO}:${GIT_SHA}"
 cd ../../../..
 
 echo "Building and Pushing Docker Images..."
-aws ecr get-login-password --region $REGION | docker login --username AWS --password-stdin $AWS_ACCOUNT_ID.dkr.ecr.$REGION.amazonaws.com
+aws ecr get-login-password --region "${REGION}" | docker login --username AWS --password-stdin "${AWS_ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com"
 
-docker build -t $API_IMAGE_URI -f server/api.Dockerfile .
-docker push $API_IMAGE_URI
+docker build -t "${API_IMAGE_URI}" -f server/api.Dockerfile .
+docker push "${API_IMAGE_URI}"
 
-docker build -t $WORKER_IMAGE_URI -f server/worker.Dockerfile .
-docker push $WORKER_IMAGE_URI
+docker build -t "${WORKER_IMAGE_URI}" -f server/worker.Dockerfile .
+docker push "${WORKER_IMAGE_URI}"
 
 echo "Rendering Kubernetes Manifests..."
 rm -rf infra/rendered
