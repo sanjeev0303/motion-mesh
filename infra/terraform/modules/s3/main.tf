@@ -3,7 +3,7 @@ module "s3_bucket" {
   version = "~> 4.0"
 
   bucket = var.bucket_name
-  acl    = "private"
+  acl    = "public-read"
 
   control_object_ownership = true
   object_ownership         = "ObjectWriter"
@@ -12,10 +12,10 @@ module "s3_bucket" {
     enabled = true
   }
 
-  block_public_acls       = true
-  block_public_policy     = true
-  ignore_public_acls      = true
-  restrict_public_buckets = true
+  block_public_acls       = false
+  block_public_policy     = false
+  ignore_public_acls      = false
+  restrict_public_buckets = false
 
   cors_rule = [
     {

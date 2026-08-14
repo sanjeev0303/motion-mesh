@@ -4,7 +4,7 @@ set -e
 # MOTIONMESH E2E DEPLOYMENT SCRIPT
 
 ENV="benchmark"
-REGION="us-east-1"
+REGION="ap-south-1"
 TF_DIR="infra/terraform/envs/$ENV"
 
 echo "===================================================================="
@@ -121,7 +121,7 @@ export WORKER_REPO=$(terraform output -raw worker_ecr_repository_url || echo "")
 export AURORA_ENDPOINT=$(terraform output -raw aurora_endpoint || echo "")
 export REDIS_ENDPOINT=$(terraform output -raw redis_endpoint || echo "")
 export S3_BUCKET_ID=$(terraform output -raw s3_bucket_id || echo "")
-export S3_BUCKET_REGION=$(terraform output -raw s3_bucket_region || echo "us-east-1")
+export S3_BUCKET_REGION=$(terraform output -raw s3_bucket_region || echo "ap-south-1")
 export CLOUDFRONT_DISTRIBUTION_DOMAIN=$(terraform output -raw cloudfront_domain_name || echo "")
 export CLOUDFRONT_MEDIA_DOMAIN=$(terraform output -raw cloudfront_media_domain || echo "")
 export ACM_CERTIFICATE_ARN=$(terraform output -raw acm_certificate_arn || echo "")

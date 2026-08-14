@@ -69,7 +69,7 @@ func (h *Handler) createBucket(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Mocking defaults for UI
-	bucket.Region = "us-east-1"
+	bucket.Region = "ap-south-1"
 	bucket.StorageLimitBytes = 1024 * 1024 * 1024 * 1024
 	bucket.EgressLimitBytes = 5 * 1024 * 1024 * 1024 * 1024
 

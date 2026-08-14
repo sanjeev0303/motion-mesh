@@ -112,7 +112,7 @@ export default function BucketsPage() {
                     className="flex h-10 w-full rounded-md border border-borderSubtle bg-base px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-motion disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     <option value="" disabled>Select a region</option>
-                    <option value="us-east-1">US East (N. Virginia)</option>
+                    <option value="ap-south-1">Asia Pacific (Mumbai)</option>
                     <option value="us-west-2">US West (Oregon)</option>
                     <option value="eu-central-1">EU (Frankfurt)</option>
                     <option value="ap-southeast-1">Asia Pacific (Singapore)</option>
@@ -154,7 +154,7 @@ export default function BucketsPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {buckets.map((bucket) => (
+              {buckets.map((bucket: Bucket) => (
                 <TableRow key={bucket.id} className="border-border-subtle hover:bg-bg-surface-raised/50 group transition-colors">
                   <TableCell className="font-medium text-text-primary">
                     <Link href={`/dashboard/buckets/${bucket.id}`} className="hover:text-accent-motion transition-colors">

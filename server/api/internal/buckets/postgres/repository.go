@@ -32,7 +32,7 @@ func (r *Repository) ListByAccount(ctx context.Context, accountID string) ([]*mo
 	var buckets []*models.Bucket
 	for rows.Next() {
 		b := &models.Bucket{
-			Region:            "us-east-1",           // Mocked default for now
+			Region:            "ap-south-1",           // Mocked default for now
 			StorageLimitBytes: 1024 * 1024 * 1024 * 1024, // 1TB default
 			EgressLimitBytes:  5 * 1024 * 1024 * 1024 * 1024, // 5TB default
 		}

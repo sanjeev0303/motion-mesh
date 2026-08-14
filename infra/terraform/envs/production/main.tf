@@ -47,7 +47,7 @@ module "elasticache" {
 module "s3" {
   source               = "../../modules/s3"
   environment          = var.environment
-  bucket_name          = "motionmesh-assets-${var.environment}"
+  bucket_name          = "motionmesh-assets-${var.environment}-ap-south-1"
   allowed_cors_origins = var.allowed_cors_origins
 }
 

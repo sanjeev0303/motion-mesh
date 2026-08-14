@@ -69,12 +69,12 @@ export default function SettingsPage() {
             
             <div className="grid gap-2 max-w-md pt-4">
               <Label htmlFor="region">Default Region</Label>
-              <Select defaultValue="us-east-1">
+              <Select defaultValue="ap-south-1">
                 <SelectTrigger id="region">
-                  <SelectValue placeholder="Select a region" />
+                  <SelectValue placeholder="Select Region" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="us-east-1">US East (N. Virginia)</SelectItem>
+                  <SelectItem value="ap-south-1">Asia Pacific (Mumbai)</SelectItem>
                   <SelectItem value="us-west-2">US West (Oregon)</SelectItem>
                   <SelectItem value="eu-central-1">EU (Frankfurt)</SelectItem>
                   <SelectItem value="ap-northeast-1">Asia Pacific (Tokyo)</SelectItem>

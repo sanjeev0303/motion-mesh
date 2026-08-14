@@ -21,7 +21,7 @@ module "eks" {
 
   eks_managed_node_group_defaults = {
     ami_type       = "AL2023_x86_64_STANDARD"
-    instance_types = ["t3.large"]
+    instance_types = ["m7i-flex.large"]
     disk_size      = 20
   }
 
@@ -31,7 +31,7 @@ module "eks" {
       max_size     = 5
       desired_size = 2
 
-      instance_types = ["t3.large"]
+      instance_types = ["m7i-flex.large"]
       capacity_type  = "ON_DEMAND"
 
       labels = {
@@ -45,7 +45,7 @@ module "eks" {
       max_size     = 20
       desired_size = 3
 
-      instance_types = ["c7i.xlarge"]
+      instance_types = ["m7i-flex.large"]
       capacity_type  = "ON_DEMAND"
 
       labels = {
@@ -59,7 +59,7 @@ module "eks" {
       max_size     = 50
       desired_size = 5
 
-      instance_types = ["c7i.2xlarge"]
+      instance_types = ["m7i-flex.large"]
       capacity_type  = "ON_DEMAND"
 
       labels = {

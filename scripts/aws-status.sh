@@ -2,7 +2,7 @@
 set -e
 
 ENV="benchmark"
-REGION="us-east-1"
+REGION="ap-south-1"
 TF_DIR="infra/terraform/envs/$ENV"
 
 echo "===================================================================="
