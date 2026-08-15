@@ -355,8 +355,12 @@ envsubst < infra/k8s/ingress.yaml > infra/rendered/ingress.yaml
 envsubst '${MIGRATION_IMAGE_URI}' < infra/k8s/db-migration-job.yaml > infra/rendered/db-migration-job.yaml
 
 echo -e "\e[32mValidating Placeholders...\e[0m"
-if grep -r '\${' infra/rendered/; then
-    echo -e "\e[32mERROR: Unrendered placeholders found in manifests!\e[0m"
+# Check only for deployment-time placeholders that must have been substituted.
+# Note: db-migration-job.yaml intentionally contains runtime shell variables
+# (e.g. ${DIRTY_VERSION}) inside its embedded script — those are NOT placeholders.
+DEPLOY_VARS='MIGRATION_IMAGE_URI|API_IMAGE_URI|WORKER_IMAGE_URI|ENVIRONMENT|AWS_REGION|COOKIE_DOMAIN|ALLOWED_ORIGINS|BENCHMARK_MODE|STRIPE_MODE|AI_MODE'
+if grep -rE "\$\{(${DEPLOY_VARS})\}" infra/rendered/; then
+    echo -e "\e[31mERROR: Unrendered deployment placeholders found in manifests!\e[0m"
     exit 1
 fi
 if grep -r -E 'localhost|127\.0\.0\.1|motionmesh\.com|motionmesh\.io' infra/rendered/; then
