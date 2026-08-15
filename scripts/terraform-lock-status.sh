@@ -1,49 +1,38 @@
 #!/bin/bash
-set -euo pipefail
+set -e
 
 ENV=${1:-benchmark}
+TABLE="motionmesh-terraform-state-lock-${ENV}"
 REGION="ap-south-1"
-TABLE_NAME="motionmesh-terraform-state-lock-${ENV}"
 
-echo "===================================================================="
-echo "Checking Terraform Lock Status for Environment: ${ENV}"
-echo "Table: ${TABLE_NAME}"
-echo "===================================================================="
+echo -e "\e[32m====================================================================\e[0m"
+echo -e "\e[32mChecking Terraform Lock Status for Environment: ${ENV}\e[0m"
+echo -e "\e[32mTable: ${TABLE}\e[0m"
+echo -e "\e[32m====================================================================\e[0m"
 
-# Check if table exists first
-if ! aws dynamodb describe-table --table-name "${TABLE_NAME}" --region "${REGION}" >/dev/null 2>&1; then
-    echo "ERROR: DynamoDB lock table '${TABLE_NAME}' does not exist."
-    exit 1
-fi
+LOCK_DATA=$(aws dynamodb scan \
+  --table-name "${TABLE}" \
+  --region "${REGION}" \
+  --output json)
 
-# Query items
-ITEMS=$(aws dynamodb scan --table-name "${TABLE_NAME}" --region "${REGION}" --output json)
-COUNT=$(echo "${ITEMS}" | node -e "const stdin = require('fs').readFileSync('/dev/stdin'); console.log(JSON.parse(stdin).Count);")
+LOCK_COUNT=$(echo "$LOCK_DATA" | jq '.Count')
 
-if [ "${COUNT}" -eq 0 ]; then
-    echo "State is currently UNLOCKED."
+if [ "$LOCK_COUNT" -eq 0 ]; then
+    echo -e "\e[32mSUCCESS: No active locks found.\e[0m"
     exit 0
 fi
 
-echo "WARNING: State is currently LOCKED. Active Lock Info:"
-echo "--------------------------------------------------------------------"
+echo -e "\e[32mWARNING: State is currently LOCKED. Active Lock Info:\e[0m"
+echo -e "\e[32m------------------------------------------------------------------\e[0m"
 
-# Parse JSON robustly with Node.js
-echo "${ITEMS}" | node -e "
-const fs = require('fs');
-const data = JSON.parse(fs.readFileSync('/dev/stdin', 'utf8'));
-
-data.Items.forEach(item => {
-    const lockId = item.LockID.S;
-    if (item.Info && item.Info.S) {
-        const info = JSON.parse(item.Info.S);
-        console.log('LockID:    ' + lockId);
-        console.log('Who:       ' + (info.Who || 'Unknown'));
-        console.log('Created:   ' + (info.Created || 'Unknown'));
-        console.log('Operation: ' + (info.Operation || 'Unknown'));
-        console.log('StatePath: ' + (info.Path || 'Unknown'));
-        console.log('Version:   ' + (info.Version || 'Unknown'));
-        console.log('--------------------------------------------------------------------');
-    }
-});
-"
+echo "$LOCK_DATA" | jq -r '.Items[] | .Info.S' | jq -r '
+  "LockID:    " + .ID,
+  "Who:       " + .Who,
+  "Created:   " + .Created,
+  "Operation: " + .Operation,
+  "Path:      " + .Path
+'
+echo -e "\e[32m------------------------------------------------------------------\e[0m"
+echo -e "\e[32mIf this lock is stale, you can unlock it using:\e[0m"
+echo -e "\e[32m./scripts/terraform-force-unlock.sh <LOCK_ID>\e[0m"
+echo -e "\e[32m====================================================================\e[0m"

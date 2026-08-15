@@ -10,7 +10,7 @@ COPY shared/go.mod shared/go.mod
 
 # Cache /go/pkg/mod so module downloads persist across builds
 RUN --mount=type=cache,target=/go/pkg/mod \
-    go work edit -dropuse=./scripts && \
+    go work edit -dropuse=./scripts -dropuse=./cmd/generate-load-data && \
     go work sync && \
     cd api && go mod download && \
     cd ../worker && go mod download && \

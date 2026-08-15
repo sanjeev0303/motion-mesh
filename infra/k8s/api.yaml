@@ -121,7 +121,6 @@ spec:
   - type: Resource
     resource:
       name: memory
-        # Wait, memory isn't always available unless metrics-server is up, but standard for EKS
       target:
         type: Utilization
         averageUtilization: 80

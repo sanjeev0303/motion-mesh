@@ -1,9 +1,9 @@
 #!/bin/bash
 set -euo pipefail
 
-echo "===================================================================="
-echo "Generating Benchmark Report (aws-report.sh)"
-echo "===================================================================="
+echo -e "\e[32m====================================================================\e[0m"
+echo -e "\e[32mGenerating Benchmark Report (aws-report.sh)\e[0m"
+echo -e "\e[32m====================================================================\e[0m"
 
 REPORT_DIR="docs/investor"
 REPORT_FILE="${REPORT_DIR}/scalability-report.md"
@@ -13,14 +13,14 @@ mkdir -p "${REPORT_DIR}"
 # Find the latest benchmark test dir
 LATEST_TEST=$(ls -td benchmark-results/test-* 2>/dev/null | head -1 || echo "")
 if [ -z "$LATEST_TEST" ] || [ ! -f "${LATEST_TEST}/workload.json" ]; then
-    echo "ERROR: No workload.json found in benchmark-results. Run aws-benchmark.sh first."
+    echo -e "\e[32mERROR: No workload.json found in benchmark-results. Run aws-benchmark.sh first.\e[0m"
     exit 1
 fi
 
-echo "Verifying Prometheus Metrics..."
+echo -e "\e[32mVerifying Prometheus Metrics...\e[0m"
 PROMETHEUS_URL=$(cd infra/terraform/envs/benchmark && terraform output -raw prometheus_url || echo "")
 if [ -z "$PROMETHEUS_URL" ]; then
-    echo "ERROR: PROMETHEUS_URL not found in terraform outputs."
+    echo -e "\e[32mERROR: PROMETHEUS_URL not found in terraform outputs.\e[0m"
     exit 1
 fi
 
@@ -28,12 +28,12 @@ fi
 for metric in "motionmesh_api_requests_total" "motionmesh_auth_local_hit_total" "motionmesh_auth_redis_hit_total" "motionmesh_auth_db_fallback_total" "motionmesh_last_used_queue_depth" "motionmesh_last_used_dropped_total"; do
     STATUS=$(curl -s "${PROMETHEUS_URL}/api/v1/query?query=${metric}" | node -e "const stdin = require('fs').readFileSync('/dev/stdin'); try { console.log(JSON.parse(stdin).status); } catch(e) { console.log('error'); }" || echo "error")
     if [ "$STATUS" != "success" ]; then
-        echo "ERROR: Failed to query Prometheus for ${metric}. Benchmark failed verification."
+        echo -e "\e[32mERROR: Failed to query Prometheus for ${metric}. Benchmark failed verification.\e[0m"
         exit 1
     fi
 done
 
-echo "Prometheus metrics verified successfully."
+echo -e "\e[32mPrometheus metrics verified successfully.\e[0m"
 
 cat << 'EOF' > "${REPORT_FILE}"
 # MotionMesh AWS Scalability Report
@@ -89,4 +89,4 @@ cat << 'EOF' >> "${REPORT_FILE}"
 - **Load Generators**: NOT_MEASURED
 EOF
 
-echo "Report generated at ${REPORT_FILE}"
+echo -e "\e[32mReport generated at ${REPORT_FILE}\e[0m"

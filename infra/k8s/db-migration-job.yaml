@@ -35,14 +35,12 @@ spec:
       containers:
         - name: migrate
           # The deploy script must replace this with the worker image or an image containing golang-migrate
-          image: ${API_IMAGE_URI}
+          image: ${MIGRATION_IMAGE_URI}
           command:
-            - /app/migrate
-            - -path
-            - /app/migrations
-            - -database
-            - $(DATABASE_URL)
-            - up
+            - /bin/sh
+            - -c
+            - |
+              migrate -path /app/migrations -database "$DATABASE_URL" up
           envFrom:
             - secretRef:
                 name: motionmesh-secrets

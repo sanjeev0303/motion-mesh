@@ -7,7 +7,7 @@ metadata:
     app: nats
 spec:
   serviceName: "nats"
-  replicas: 3
+  replicas: 2
   selector:
     matchLabels:
       app: nats
@@ -21,7 +21,7 @@ spec:
       topologySpreadConstraints:
       - maxSkew: 1
         topologyKey: topology.kubernetes.io/zone
-        whenUnsatisfiable: DoNotSchedule
+        whenUnsatisfiable: ScheduleAnyway
         labelSelector:
           matchLabels:
             app: nats
@@ -45,11 +45,22 @@ spec:
           name: monitor
         args:
           - "-js"
+          - "-m"
+          - "8222"
           - "--store_dir=/data/jetstream"
+          - "--server_name"
+          - "$(POD_NAME)"
+          - "--cluster_name"
+          - "motionmesh-nats"
           - "--cluster"
           - "nats://0.0.0.0:6222"
           - "--routes"
-          - "nats://nats-0.nats.motionmesh.svc.cluster.local:6222,nats://nats-1.nats.motionmesh.svc.cluster.local:6222,nats://nats-2.nats.motionmesh.svc.cluster.local:6222"
+          - "nats://nats-0.nats.motionmesh.svc.cluster.local:6222,nats://nats-1.nats.motionmesh.svc.cluster.local:6222"
+        env:
+          - name: POD_NAME
+            valueFrom:
+              fieldRef:
+                fieldPath: metadata.name
         resources:
           requests:
             cpu: "500m"
@@ -107,7 +118,7 @@ metadata:
   name: nats-pdb
   namespace: motionmesh
 spec:
-  minAvailable: 2
+  minAvailable: 1
   selector:
     matchLabels:
       app: nats

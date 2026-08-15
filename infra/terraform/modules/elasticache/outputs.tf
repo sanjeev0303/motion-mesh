@@ -12,3 +12,8 @@ output "redis_port" {
   description = "Port of the ElastiCache Redis cluster"
   value       = aws_elasticache_replication_group.this.port
 }
+
+output "redis_secret_arn" {
+  description = "ARN of the Secrets Manager secret for Redis"
+  value       = aws_secretsmanager_secret.redis.arn
+}

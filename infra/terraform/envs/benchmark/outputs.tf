@@ -121,3 +121,13 @@ output "external_secrets_iam_role_arn" {
   description = "IAM Role ARN for External Secrets Operator"
   value       = module.iam.external_secrets_role_arn
 }
+
+output "redis_secret_arn" {
+  description = "ARN of the Secrets Manager secret for Redis"
+  value       = module.elasticache.redis_secret_arn
+}
+
+output "cloudfront_signing_secret_arn" {
+  description = "ARN of the Secrets Manager secret for CloudFront signing"
+  value       = aws_secretsmanager_secret.cloudfront_signing.arn
+}
