@@ -6,7 +6,7 @@ metadata:
   labels:
     app: db-migration
 spec:
-  backoffLimit: 3
+  backoffLimit: 1
   template:
     metadata:
       labels:
@@ -49,7 +49,23 @@ spec:
             - /bin/sh
             - -c
             - |
+              set -e
+              echo "Checking migration state..."
+              VERSION_OUT=$(migrate -path /app/migrations -database "$DATABASE_URL" version 2>&1 || true)
+              echo "Current state: $VERSION_OUT"
+
+              # If the DB is dirty, extract the dirty version number and force-clear it
+              if echo "$VERSION_OUT" | grep -qi "dirty"; then
+                DIRTY_VERSION=$(echo "$VERSION_OUT" | grep -oE '[0-9]+' | head -1)
+                echo "Dirty database detected at version ${DIRTY_VERSION}. Forcing clean state..."
+                migrate -path /app/migrations -database "$DATABASE_URL" force "${DIRTY_VERSION}"
+                echo "Force complete. Re-checking state..."
+                migrate -path /app/migrations -database "$DATABASE_URL" version 2>&1 || true
+              fi
+
+              echo "Running migrations..."
               migrate -path /app/migrations -database "$DATABASE_URL" up
+              echo "Migrations complete."
           envFrom:
             - secretRef:
                 name: motionmesh-secrets

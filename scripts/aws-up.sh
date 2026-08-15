@@ -39,14 +39,51 @@ retry_helm_install() {
         fi
     }
 
+    # Pull chart to a local tmpdir so the GitHub CDN is hit only once per retry
+    # cycle rather than on every helm upgrade/install invocation.
+    _pull_chart() {
+        local pull_dir
+        pull_dir=$(mktemp -d)
+        echo -e "\e[32mPulling chart ${chart_name} to local cache...\e[0m" >&2
+        if helm pull "$chart_name" --destination "$pull_dir" --timeout 120s 2>/dev/null; then
+            echo "$pull_dir"  # only the dir path goes to stdout
+        else
+            rm -rf "$pull_dir"
+            echo ""
+        fi
+    }
+
     _update_repo
 
-    until helm upgrade --install "$release_name" "$chart_name" \
-            --namespace "$namespace" "${ns_args[@]}" --timeout 10m "$@"; do
+    while true; do
+        # Pull chart to local disk; fall back to remote name if pull fails
+        local chart_dir install_target local_tgz
+        chart_dir=$(_pull_chart)
+        install_target="$chart_name"
+        if [ -n "$chart_dir" ]; then
+            local_tgz=$(ls "$chart_dir"/*.tgz 2>/dev/null | head -1)
+            if [ -n "$local_tgz" ]; then
+                install_target="$local_tgz"
+                echo -e "\e[32mUsing local chart: $local_tgz\e[0m"
+            fi
+        fi
+
+        # --disable-openapi-validation: skip Kubernetes OpenAPI schema download
+        # which fails on flaky networks (the "failed to download openapi" error).
+        if helm upgrade --install "$release_name" "$install_target" \
+                --namespace "$namespace" "${ns_args[@]}" \
+                --timeout 10m \
+                --disable-openapi-validation \
+                "$@"; then
+            [ -n "$chart_dir" ] && rm -rf "$chart_dir"
+            break
+        fi
+
+        [ -n "$chart_dir" ] && rm -rf "$chart_dir"
         retry_count=$((retry_count+1))
         if [ $retry_count -ge $max_retries ]; then
             echo -e "\e[31mERROR: Failed to install $release_name after $max_retries attempts.\e[0m"
-            exit 1
+            return 1  # non-zero return; caller decides whether to abort or continue
         fi
         echo -e "\e[33mHelm command timed out or failed. Cleaning up and retrying in 60s... ($retry_count/$max_retries)\e[0m"
         helm uninstall "$release_name" -n "$namespace" --ignore-not-found 2>/dev/null || true
@@ -192,25 +229,30 @@ helm repo add prometheus-community https://prometheus-community.github.io/helm-c
 helm repo add metrics-server https://kubernetes-sigs.github.io/metrics-server/ 2>/dev/null || true
 helm repo add k8s-sigs-external-dns https://kubernetes-sigs.github.io/external-dns/ 2>/dev/null || true
 
+FAILED_HELMS=()
+
 retry_helm_install metrics-server metrics-server metrics-server/metrics-server kube-system false \
   --set apiService.create=true \
   --set args="{--kubelet-insecure-tls}" \
   --set resources.requests.cpu=100m \
   --set resources.requests.memory=200Mi \
   --set resources.limits.cpu=500m \
-  --set resources.limits.memory=500Mi
+  --set resources.limits.memory=500Mi \
+  || FAILED_HELMS+=(metrics-server)
 
 retry_helm_install aws-load-balancer-controller eks eks/aws-load-balancer-controller kube-system false \
   --set clusterName="${EKS_CLUSTER}" \
   --set serviceAccount.create=true \
   --set serviceAccount.name=aws-load-balancer-controller \
-  --set serviceAccount.annotations."eks\.amazonaws\.com/role-arn"="$LBC_ROLE_ARN"
+  --set serviceAccount.annotations."eks\.amazonaws\.com/role-arn"="$LBC_ROLE_ARN" \
+  || FAILED_HELMS+=(aws-load-balancer-controller)
 
 retry_helm_install external-secrets external-secrets external-secrets/external-secrets external-secrets true \
   --set installCRDs=true \
   --set serviceAccount.create=true \
   --set serviceAccount.name=external-secrets \
-  --set serviceAccount.annotations."eks\.amazonaws\.com/role-arn"="$ESO_ROLE_ARN"
+  --set serviceAccount.annotations."eks\.amazonaws\.com/role-arn"="$ESO_ROLE_ARN" \
+  || FAILED_HELMS+=(external-secrets)
 
 retry_helm_install external-dns k8s-sigs-external-dns k8s-sigs-external-dns/external-dns kube-system false \
   --set provider.name=aws \
@@ -218,11 +260,13 @@ retry_helm_install external-dns k8s-sigs-external-dns k8s-sigs-external-dns/exte
   --set env[0].value="$REGION" \
   --set serviceAccount.create=true \
   --set serviceAccount.name=external-dns \
-  --set serviceAccount.annotations."eks\.amazonaws\.com/role-arn"="$EDNS_ROLE_ARN"
+  --set serviceAccount.annotations."eks\.amazonaws\.com/role-arn"="$EDNS_ROLE_ARN" \
+  || FAILED_HELMS+=(external-dns)
 
 retry_helm_install prometheus prometheus-community prometheus-community/kube-prometheus-stack monitoring true \
   --set grafana.enabled=false \
-  --set alertmanager.enabled=false
+  --set alertmanager.enabled=false \
+  || FAILED_HELMS+=(prometheus)
 
 # 9. Wait for controllers
 echo -e "\e[32mWaiting for controllers to be ready...\e[0m"
@@ -398,3 +442,14 @@ echo -e "\e[32m=================================================================
 echo -e "\e[32mMotionMesh E2E Deployment Complete\e[0m"
 echo -e "\e[32mPlease run ./scripts/aws-status.sh and ./scripts/aws-smoke.sh to verify.\e[0m"
 echo -e "\e[32m====================================================================\e[0m"
+
+if [ ${#FAILED_HELMS[@]} -gt 0 ]; then
+    echo -e "\e[33m====================================================================\e[0m"
+    echo -e "\e[33mWARNING: The following Helm releases failed after all retries:\e[0m"
+    for f in "${FAILED_HELMS[@]}"; do
+        echo -e "\e[33m  - $f\e[0m"
+    done
+    echo -e "\e[33mRe-run ./scripts/aws-up.sh or install them manually to recover.\e[0m"
+    echo -e "\e[33m====================================================================\e[0m"
+    exit 1
+fi
