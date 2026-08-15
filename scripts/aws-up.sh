@@ -45,7 +45,7 @@ retry_helm_install() {
         local pull_dir
         pull_dir=$(mktemp -d)
         echo -e "\e[32mPulling chart ${chart_name} to local cache...\e[0m" >&2
-        if helm pull "$chart_name" --destination "$pull_dir" --timeout 120s 2>/dev/null; then
+        if helm pull "$chart_name" --destination "$pull_dir" --timeout 300s 2>/dev/null; then
             echo "$pull_dir"  # only the dir path goes to stdout
         else
             rm -rf "$pull_dir"
@@ -72,7 +72,7 @@ retry_helm_install() {
         # which fails on flaky networks (the "failed to download openapi" error).
         if helm upgrade --install "$release_name" "$install_target" \
                 --namespace "$namespace" "${ns_args[@]}" \
-                --timeout 10m \
+                --timeout 20m \
                 --disable-openapi-validation \
                 "$@"; then
             [ -n "$chart_dir" ] && rm -rf "$chart_dir"
@@ -266,6 +266,10 @@ retry_helm_install external-dns k8s-sigs-external-dns k8s-sigs-external-dns/exte
 retry_helm_install prometheus prometheus-community prometheus-community/kube-prometheus-stack monitoring true \
   --set grafana.enabled=false \
   --set alertmanager.enabled=false \
+  --set prometheus.prometheusSpec.retention=2h \
+  --set prometheus.prometheusSpec.resources.requests.memory=512Mi \
+  --set prometheus.prometheusSpec.resources.limits.memory=1Gi \
+  --skip-crds \
   || FAILED_HELMS+=(prometheus)
 
 # 9. Wait for controllers
