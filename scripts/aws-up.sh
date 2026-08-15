@@ -234,6 +234,7 @@ FAILED_HELMS=()
 echo -e "\e[32mInstalling metrics-server via official manifest (bypassing helm timeout)...\e[0m"
 curl -sL https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml > /tmp/metrics-server-components.yaml
 sed -i 's/- args:/- args:\n        - --kubelet-insecure-tls/g' /tmp/metrics-server-components.yaml
+kubectl delete deployment metrics-server -n kube-system --ignore-not-found
 kubectl apply -f /tmp/metrics-server-components.yaml || FAILED_HELMS+=(metrics-server)
 kubectl patch deployment metrics-server -n kube-system --type='json' -p='[{"op": "add", "path": "/spec/template/spec/containers/0/resources/limits", "value": {"cpu": "500m", "memory": "500Mi"}}]' 2>/dev/null || true
 

@@ -1,5 +1,5 @@
 CREATE TABLE IF NOT EXISTS account_usage_counters (
-    account_id UUID NOT NULL,
+    account_id VARCHAR(255) NOT NULL,
     event_type TEXT NOT NULL,
     total BIGINT NOT NULL DEFAULT 0,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),

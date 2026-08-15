@@ -3,7 +3,7 @@
 
 CREATE TABLE IF NOT EXISTS stripe_outbox (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    account_id UUID NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+    account_id VARCHAR(255) NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
     stripe_customer_id VARCHAR(255) NOT NULL,
     event_type VARCHAR(100) NOT NULL,
     quantity BIGINT NOT NULL,
