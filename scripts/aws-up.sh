@@ -293,22 +293,36 @@ rm -rf infra/rendered/*
 envsubst < infra/k8s/external-secrets.yaml > infra/rendered/external-secrets.yaml
 
 echo -e "\e[32mWaiting for External Secrets CRDs to be established...\e[0m"
-kubectl wait --for condition=established --timeout=120s crd/secretstores.external-secrets.io || true
-kubectl wait --for condition=established --timeout=120s crd/externalsecrets.external-secrets.io || true
-sleep 5 # API discovery cache padding
+kubectl wait --for condition=established --timeout=120s crd/secretstores.external-secrets.io
+# Poll until externalsecrets CRD appears — helm uninstall/reinstall can delay CRD registration
+for _crd_attempt in {1..36}; do
+    if kubectl get crd externalsecrets.external-secrets.io &>/dev/null; then
+        kubectl wait --for condition=established --timeout=30s crd/externalsecrets.external-secrets.io
+        echo -e "\e[32mexternalsecrets CRD established.\e[0m"
+        break
+    fi
+    echo -e "\e[33mWaiting for externalsecrets.external-secrets.io CRD... (${_crd_attempt}/36)\e[0m"
+    sleep 5
+    if [ "$_crd_attempt" -eq 36 ]; then
+        echo -e "\e[31mERROR: externalsecrets.external-secrets.io CRD not established after 3 minutes.\e[0m"
+        exit 1
+    fi
+done
 
 # Invalidate kubectl discovery cache to avoid "no matches for kind" errors due to stale client cache
 rm -rf ~/.kube/cache
+sleep 5 # API discovery cache padding
 
 for i in {1..5}; do
     kubectl apply -f infra/rendered/external-secrets.yaml && break
     echo -e "\e[33mRetrying kubectl apply for external-secrets (Attempt $i/5)...\e[0m"
-    sleep 5
+    rm -rf ~/.kube/cache
+    sleep 10
 done
 echo -e "\e[32mWaiting for ExternalSecret to synchronize...\e[0m"
 sleep 5
 kubectl wait --for=condition=Ready secretstore/aws-secretsmanager -n motionmesh --timeout=60s
-kubectl wait --for=condition=Ready externalsecret/motionmesh-secrets -n motionmesh --timeout=60s
+kubectl wait --for=condition=Ready externalsecret/motionmesh-secrets -n motionmesh --timeout=120s
 
 # 12. Ensure gp3 StorageClass exists (required for NATS JetStream PVCs)
 echo -e "\e[32mCreating gp3 StorageClass...\e[0m"
@@ -340,14 +354,27 @@ export MIGRATION_IMAGE_URI="${MIGRATION_REPO}:${GIT_SHA}"
 echo -e "\e[32mBuilding and Pushing Docker Images...\e[0m"
 aws ecr get-login-password --region "${REGION}" | podman login --username AWS --password-stdin "${AWS_ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com"
 
+# Helper: push only if the tag doesn't already exist (ECR immutable tags)
+ecr_push() {
+    local image_uri="$1"
+    local repo tag
+    repo=$(echo "$image_uri" | cut -d: -f1 | sed "s|${AWS_ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com/||")
+    tag=$(echo "$image_uri" | cut -d: -f2)
+    if aws ecr describe-images --repository-name "$repo" --image-ids imageTag="$tag" --region "${REGION}" &>/dev/null; then
+        echo -e "\e[33mSkipping push: ${image_uri} already exists in ECR (immutable tag).\e[0m"
+    else
+        podman push "$image_uri"
+    fi
+}
+
 podman build -t "${API_IMAGE_URI}" -f server/api/Dockerfile server/
-podman push "${API_IMAGE_URI}"
+ecr_push "${API_IMAGE_URI}"
 
 podman build -t "${WORKER_IMAGE_URI}" -f server/worker/Dockerfile server/
-podman push "${WORKER_IMAGE_URI}"
+ecr_push "${WORKER_IMAGE_URI}"
 
 podman build --no-cache -t "${MIGRATION_IMAGE_URI}" -f server/migrations.Dockerfile .
-podman push "${MIGRATION_IMAGE_URI}"
+ecr_push "${MIGRATION_IMAGE_URI}"
 
 echo -e "\e[32mRendering Kubernetes Manifests...\e[0m"
 envsubst < infra/k8s/configmap.yaml > infra/rendered/configmap.yaml

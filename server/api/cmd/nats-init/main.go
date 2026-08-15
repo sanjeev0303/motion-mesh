@@ -14,10 +14,19 @@ func main() {
 		natsURL = nats.DefaultURL
 	}
 
-	log.Printf("Connecting to NATS at %s...", natsURL)
-	nc, err := nats.Connect(natsURL)
+	var nc *nats.Conn
+	var err error
+	for i := 0; i < 15; i++ {
+		log.Printf("Connecting to NATS at %s (attempt %d)...", natsURL, i+1)
+		nc, err = nats.Connect(natsURL)
+		if err == nil {
+			break
+		}
+		log.Printf("Failed to connect: %v. Retrying in 2 seconds...", err)
+		time.Sleep(2 * time.Second)
+	}
 	if err != nil {
-		log.Fatalf("Failed to connect to NATS: %v", err)
+		log.Fatalf("Failed to connect to NATS after multiple attempts: %v", err)
 	}
 	defer nc.Close()
 

@@ -6,7 +6,7 @@ metadata:
   labels:
     app: worker
 spec:
-  replicas: 20
+  replicas: 2
   selector:
     matchLabels:
       app: worker
@@ -89,7 +89,7 @@ spec:
     apiVersion: apps/v1
     kind: Deployment
     name: worker
-  minReplicas: 20
+  minReplicas: 2
   maxReplicas: 100
   metrics:
   - type: Resource

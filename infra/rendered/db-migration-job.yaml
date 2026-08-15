@@ -44,7 +44,7 @@ spec:
       containers:
         - name: migrate
           # The deploy script must replace this with the worker image or an image containing golang-migrate
-          image: 718314448702.dkr.ecr.ap-south-1.amazonaws.com/motionmesh-diagnostic:7eecadc
+          image: 718314448702.dkr.ecr.ap-south-1.amazonaws.com/motionmesh-diagnostic:045e35a
           imagePullPolicy: Always
           command:
             - /bin/sh

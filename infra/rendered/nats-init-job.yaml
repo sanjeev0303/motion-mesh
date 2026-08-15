@@ -17,10 +17,16 @@ spec:
       restartPolicy: OnFailure
       containers:
         - name: nats-init
-          image: 718314448702.dkr.ecr.ap-south-1.amazonaws.com/motionmesh-api:7eecadc
+          image: 718314448702.dkr.ecr.ap-south-1.amazonaws.com/motionmesh-api:045e35a
           imagePullPolicy: Always
           command:
             - /app/nats-init
+          env:
+            - name: NATS_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: motionmesh-config
+                  key: QUEUE_URL
           envFrom:
             - secretRef:
                 name: motionmesh-secrets

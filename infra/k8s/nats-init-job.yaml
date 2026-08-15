@@ -21,6 +21,12 @@ spec:
           imagePullPolicy: Always
           command:
             - /app/nats-init
+          env:
+            - name: NATS_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: motionmesh-config
+                  key: QUEUE_URL
           envFrom:
             - secretRef:
                 name: motionmesh-secrets
