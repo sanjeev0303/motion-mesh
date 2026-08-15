@@ -272,8 +272,14 @@ kubectl wait --for condition=established --timeout=120s crd/secretstores.externa
 kubectl wait --for condition=established --timeout=120s crd/externalsecrets.external-secrets.io || true
 sleep 5 # API discovery cache padding
 
-kubectl apply -f infra/rendered/external-secrets.yaml
+# Invalidate kubectl discovery cache to avoid "no matches for kind" errors due to stale client cache
+rm -rf ~/.kube/cache
 
+for i in {1..5}; do
+    kubectl apply -f infra/rendered/external-secrets.yaml && break
+    echo -e "\e[33mRetrying kubectl apply for external-secrets (Attempt $i/5)...\e[0m"
+    sleep 5
+done
 echo -e "\e[32mWaiting for ExternalSecret to synchronize...\e[0m"
 sleep 5
 kubectl wait --for=condition=Ready secretstore/aws-secretsmanager -n motionmesh --timeout=60s
