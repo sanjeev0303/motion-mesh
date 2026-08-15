@@ -1,0 +1,10 @@
+ALTER TABLE api_keys ADD CONSTRAINT fk_api_keys_account_id FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE;
+ALTER TABLE buckets ADD CONSTRAINT fk_buckets_account_id FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE;
+ALTER TABLE videos ADD CONSTRAINT fk_videos_account_id FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE;
+ALTER TABLE videos ADD CONSTRAINT fk_videos_bucket_id FOREIGN KEY (bucket_id) REFERENCES buckets(id) ON DELETE CASCADE;
+ALTER TABLE chapters ADD CONSTRAINT fk_chapters_video_id FOREIGN KEY (video_id) REFERENCES videos(id) ON DELETE CASCADE;
+ALTER TABLE renditions ADD CONSTRAINT fk_renditions_video_id FOREIGN KEY (video_id) REFERENCES videos(id) ON DELETE CASCADE;
+ALTER TABLE caption_tracks ADD CONSTRAINT fk_caption_tracks_video_id FOREIGN KEY (video_id) REFERENCES videos(id) ON DELETE CASCADE;
+ALTER TABLE transcode_jobs ADD CONSTRAINT fk_transcode_jobs_video_id FOREIGN KEY (video_id) REFERENCES videos(id) ON DELETE CASCADE;
+ALTER TABLE watermark_metadata ADD CONSTRAINT fk_watermark_metadata_account_id FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE;
+ALTER TABLE usage_events ADD CONSTRAINT fk_usage_events_account_id FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE;

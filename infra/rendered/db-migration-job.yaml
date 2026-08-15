@@ -15,8 +15,6 @@ spec:
       serviceAccountName: motionmesh-api
       automountServiceAccountToken: false
       restartPolicy: Never
-      nodeSelector:
-        NodeGroup: system
       initContainers:
         - name: wait-for-db
           image: postgres:15-alpine
@@ -28,14 +26,21 @@ spec:
             - -c
             - |
               echo "Waiting for Aurora PostgreSQL to be reachable..."
-              until pg_isready -d "$DATABASE_URL"; do
+              ATTEMPTS=0
+              MAX_ATTEMPTS=60
+              until pg_isready -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$DB_NAME"; do
+                ATTEMPTS=$((ATTEMPTS + 1))
+                if [ $ATTEMPTS -ge $MAX_ATTEMPTS ]; then
+                  echo "Aurora failed to become reachable after 2 minutes."
+                  exit 1
+                fi
                 sleep 2
               done
               echo "Aurora is reachable!"
       containers:
         - name: migrate
           # The deploy script must replace this with the worker image or an image containing golang-migrate
-          image: 718314448702.dkr.ecr.ap-south-1.amazonaws.com/motionmesh-diagnostic:9da82a0
+          image: 718314448702.dkr.ecr.ap-south-1.amazonaws.com/motionmesh-diagnostic:8f67277
           command:
             - /bin/sh
             - -c

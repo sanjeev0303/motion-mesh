@@ -1,11 +1,10 @@
+FROM docker.io/migrate/migrate:v4.16.2 AS builder
+
 FROM alpine:3.18
 
-RUN apk add --no-cache curl tar && \
-    adduser -D -H -u 1001 appuser
+RUN adduser -D -H -u 1001 appuser
 
-# Download golang-migrate
-RUN curl -L https://github.com/golang-migrate/migrate/releases/download/v4.16.2/migrate.linux-amd64.tar.gz | tar xvz && \
-    mv migrate /usr/local/bin/migrate
+COPY --from=builder /usr/local/bin/migrate /usr/local/bin/migrate
 
 WORKDIR /app
 COPY infra/postgres/migrations /app/migrations

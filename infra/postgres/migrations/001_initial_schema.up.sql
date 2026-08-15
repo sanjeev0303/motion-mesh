@@ -1,0 +1,108 @@
+CREATE TABLE IF NOT EXISTS accounts (
+    id VARCHAR(255) PRIMARY KEY,
+    email VARCHAR(255) NOT NULL,
+    clerk_user_id VARCHAR(255),
+    clerk_org_id VARCHAR(255),
+    stripe_customer_id VARCHAR(255),
+    plan VARCHAR(50) NOT NULL,
+    status VARCHAR(50) NOT NULL,
+    total_storage_bytes BIGINT NOT NULL DEFAULT 0,
+    total_videos INTEGER NOT NULL DEFAULT 0,
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS api_keys (
+    id VARCHAR(255) PRIMARY KEY,
+    account_id VARCHAR(255) NOT NULL,
+    name VARCHAR(255) NOT NULL,
+    prefix VARCHAR(255) NOT NULL,
+    hash VARCHAR(255) NOT NULL,
+    scopes TEXT[] NOT NULL,
+    last_used_at TIMESTAMP WITH TIME ZONE,
+    expires_at TIMESTAMP WITH TIME ZONE,
+    revoked_at TIMESTAMP WITH TIME ZONE,
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS buckets (
+    id VARCHAR(255) PRIMARY KEY,
+    account_id VARCHAR(255) NOT NULL,
+    name VARCHAR(255) NOT NULL,
+    region VARCHAR(100) NOT NULL,
+    storage_used_bytes BIGINT NOT NULL DEFAULT 0,
+    storage_limit_bytes BIGINT NOT NULL DEFAULT 0,
+    egress_used_bytes BIGINT NOT NULL DEFAULT 0,
+    egress_limit_bytes BIGINT NOT NULL DEFAULT 0,
+    object_count INTEGER NOT NULL DEFAULT 0,
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS videos (
+    id VARCHAR(255) PRIMARY KEY,
+    account_id VARCHAR(255) NOT NULL,
+    bucket_id VARCHAR(255) NOT NULL,
+    object_key VARCHAR(1024) NOT NULL,
+    thumbnail_key VARCHAR(1024),
+    sprite_key VARCHAR(1024),
+    preview_key VARCHAR(1024),
+    title VARCHAR(1024) NOT NULL,
+    status VARCHAR(50) NOT NULL,
+    duration DOUBLE PRECISION NOT NULL DEFAULT 0,
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS chapters (
+    id VARCHAR(255) PRIMARY KEY,
+    video_id VARCHAR(255) NOT NULL,
+    start_time_seconds DOUBLE PRECISION NOT NULL,
+    title VARCHAR(255) NOT NULL,
+    position INTEGER NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS renditions (
+    id VARCHAR(255) PRIMARY KEY,
+    video_id VARCHAR(255) NOT NULL,
+    resolution VARCHAR(50) NOT NULL,
+    object_key VARCHAR(1024) NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS caption_tracks (
+    id VARCHAR(255) PRIMARY KEY,
+    video_id VARCHAR(255) NOT NULL,
+    language VARCHAR(50) NOT NULL,
+    object_key VARCHAR(1024) NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS transcode_jobs (
+    id VARCHAR(255) PRIMARY KEY,
+    video_id VARCHAR(255) NOT NULL,
+    status VARCHAR(50) NOT NULL,
+    progress_percent INTEGER NOT NULL DEFAULT 0,
+    error_msg TEXT,
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS watermark_metadata (
+    id VARCHAR(255) PRIMARY KEY,
+    account_id VARCHAR(255) NOT NULL,
+    asset_object_key VARCHAR(1024) NOT NULL,
+    position VARCHAR(50) NOT NULL,
+    opacity REAL NOT NULL,
+    is_active BOOLEAN NOT NULL DEFAULT true,
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS usage_events (
+    id VARCHAR(255) PRIMARY KEY,
+    account_id VARCHAR(255) NOT NULL,
+    event_type VARCHAR(50) NOT NULL,
+    quantity BIGINT NOT NULL,
+    metadata JSONB,
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
+);

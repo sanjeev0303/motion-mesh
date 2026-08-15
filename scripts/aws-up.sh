@@ -345,11 +345,49 @@ fi
 echo -e "\e[32mDeploying Configuration...\e[0m"
 kubectl apply -f infra/rendered/configmap.yaml
 
-# 15. Run DB Migrations
+# 15. Pre-Migration Checks
+echo -e "\e[32mValidating Secrets...\e[0m"
+if ! kubectl get secret motionmesh-secrets -n motionmesh &>/dev/null; then
+    echo -e "\e[31mERROR: motionmesh-secrets secret is missing.\e[0m"
+    exit 1
+fi
+
+echo -e "\e[32mTesting Aurora Connectivity (TCP 5432)...\e[0m"
+kubectl run aurora-test --rm -i --restart=Never --image=alpine:3.18 -n motionmesh -- sh -c "nc -z -w 5 ${AURORA_ENDPOINT} 5432" || {
+    echo -e "\e[31mERROR: Could not connect to Aurora at ${AURORA_ENDPOINT}:5432.\e[0m"
+    exit 1
+}
+
+# 16. Run DB Migrations
 echo -e "\e[32mRunning Database Migrations...\e[0m"
 kubectl delete job motionmesh-db-migration -n motionmesh --ignore-not-found=true
 kubectl apply -f infra/rendered/db-migration-job.yaml
-kubectl wait --for=condition=complete job/motionmesh-db-migration -n motionmesh --timeout=300s
+
+echo -e "\e[32mMonitoring Database Migration...\e[0m"
+for i in {1..90}; do
+    JOB_STATUS=$(kubectl get job motionmesh-db-migration -n motionmesh -o json 2>/dev/null || echo "{}")
+    FAILED=$(echo "$JOB_STATUS" | jq '.status.failed // 0')
+    SUCCEEDED=$(echo "$JOB_STATUS" | jq '.status.succeeded // 0')
+
+    if [ "$SUCCEEDED" -gt 0 ]; then
+        echo -e "\e[32mDatabase Migration: SUCCESS\e[0m"
+        break
+    fi
+
+    if [ "$FAILED" -gt 0 ]; then
+        echo -e "\e[31mERROR: Database Migration FAILED.\e[0m"
+        ./scripts/diagnose-migration.sh
+        exit 1
+    fi
+    
+    sleep 10
+done
+
+if [ "$SUCCEEDED" -eq 0 ] && [ "$FAILED" -eq 0 ]; then
+    echo -e "\e[31mERROR: Database Migration timed out.\e[0m"
+    ./scripts/diagnose-migration.sh
+    exit 1
+fi
 
 echo -e "\e[32mDeploying API and Workers...\e[0m"
 kubectl apply -f infra/rendered/api.yaml
