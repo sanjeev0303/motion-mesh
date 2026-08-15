@@ -9,6 +9,6 @@ COPY --from=builder /usr/local/bin/migrate /usr/local/bin/migrate
 WORKDIR /app
 COPY infra/postgres/migrations /app/migrations
 
-USER appuser
+USER 1001
 
 # We don't set CMD so we can override it easily in Kubernetes
