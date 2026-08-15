@@ -6,7 +6,7 @@
 
 CREATE TABLE IF NOT EXISTS objects (
   id           uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
-  bucket_id    uuid        NOT NULL REFERENCES buckets(id) ON DELETE CASCADE,
+  bucket_id    VARCHAR(255) NOT NULL REFERENCES buckets(id) ON DELETE CASCADE,
   key          text        NOT NULL,
   size_bytes   bigint      NOT NULL DEFAULT 0,
   content_type text        NOT NULL DEFAULT 'application/octet-stream',
