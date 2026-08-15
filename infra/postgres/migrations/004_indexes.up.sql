@@ -7,8 +7,6 @@ CREATE INDEX IF NOT EXISTS idx_api_keys_account_id ON api_keys(account_id);
 -- buckets
 CREATE INDEX IF NOT EXISTS idx_buckets_account_id ON buckets(account_id);
 
--- objects
-CREATE UNIQUE INDEX IF NOT EXISTS idx_objects_bucket_id_key ON objects(bucket_id, key);
 
 -- videos
 CREATE INDEX IF NOT EXISTS idx_videos_account_id_created_at ON videos(account_id, created_at DESC);
@@ -16,7 +14,7 @@ CREATE INDEX IF NOT EXISTS idx_videos_status ON videos(status);
 
 -- transcode_jobs
 CREATE INDEX IF NOT EXISTS idx_transcode_jobs_video_id ON transcode_jobs(video_id);
-CREATE INDEX IF NOT EXISTS idx_transcode_jobs_status_started_at ON transcode_jobs(status, started_at);
+CREATE INDEX IF NOT EXISTS idx_transcode_jobs_status_created_at ON transcode_jobs(status, created_at);
 
 -- renditions
 CREATE INDEX IF NOT EXISTS idx_renditions_video_id ON renditions(video_id);

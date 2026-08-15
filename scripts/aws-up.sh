@@ -10,7 +10,7 @@ retry_helm_install() {
     shift 5
 
     echo -e "\e[32mInstalling ${release_name} (with retry for network limits)...\e[0m"
-    local max_retries=5
+    local max_retries=8
     local retry_count=0
 
     local ns_args=()
@@ -18,19 +18,44 @@ retry_helm_install() {
         ns_args=(--create-namespace)
     fi
 
-    until helm repo update "$repo_name" 2>/dev/null || true; \
-          helm upgrade --install "$release_name" "$chart_name" --namespace "$namespace" "${ns_args[@]}" --timeout 10m "$@"; do
+    # Update repo index; failure is non-fatal — cached index is used as fallback
+    _update_repo() {
+        echo -e "\e[32mUpdating helm repo: $repo_name...\e[0m"
+        helm repo update "$repo_name" --timeout 60s 2>/dev/null \
+            || echo -e "\e[33mWarning: helm repo update for $repo_name failed; using cached index.\e[0m"
+    }
+
+    # Attempt to recover DNS if systemd-resolved is misbehaving
+    _recover_dns() {
+        if ! nslookup aws.github.io 8.8.8.8 &>/dev/null 2>&1; then
+            echo -e "\e[33mExternal DNS (8.8.8.8) also unreachable — network issue, waiting 30s...\e[0m"
+            sleep 30
+            return
+        fi
+        if ! nslookup aws.github.io 127.0.0.53 &>/dev/null 2>&1; then
+            echo -e "\e[33msystemd-resolved misbehaving — restarting...\e[0m"
+            sudo systemctl restart systemd-resolved 2>/dev/null || true
+            sleep 10
+        fi
+    }
+
+    _update_repo
+
+    until helm upgrade --install "$release_name" "$chart_name" \
+            --namespace "$namespace" "${ns_args[@]}" --timeout 10m "$@"; do
         retry_count=$((retry_count+1))
         if [ $retry_count -ge $max_retries ]; then
             echo -e "\e[31mERROR: Failed to install $release_name after $max_retries attempts.\e[0m"
             exit 1
         fi
-        echo -e "\e[33mHelm command timed out or failed. Cleaning up partial state and retrying in 30 seconds... ($retry_count/$max_retries)\e[0m"
+        echo -e "\e[33mHelm command timed out or failed. Cleaning up and retrying in 60s... ($retry_count/$max_retries)\e[0m"
         helm uninstall "$release_name" -n "$namespace" --ignore-not-found 2>/dev/null || true
         if [ "$release_name" = "external-secrets" ]; then
             kubectl delete secret -n external-secrets -l name=external-secrets --ignore-not-found 2>/dev/null || true
         fi
-        sleep 30
+        _recover_dns
+        sleep 60
+        _update_repo
     done
 }
 export AWS_PAGER=""   # Disable AWS CLI pager so the script never blocks waiting for input
