@@ -355,6 +355,7 @@ envsubst < infra/k8s/api.yaml > infra/rendered/api.yaml
 envsubst < infra/k8s/worker.yaml > infra/rendered/worker.yaml
 envsubst < infra/k8s/ingress.yaml > infra/rendered/ingress.yaml
 envsubst '${MIGRATION_IMAGE_URI}' < infra/k8s/db-migration-job.yaml > infra/rendered/db-migration-job.yaml
+envsubst '${API_IMAGE_URI}' < infra/k8s/nats-init-job.yaml > infra/rendered/nats-init-job.yaml
 
 echo -e "\e[32mValidating Placeholders...\e[0m"
 # Check only for deployment-time placeholders that must have been substituted.
@@ -433,6 +434,18 @@ if [ "$SUCCEEDED" -eq 0 ] && [ "$FAILED" -eq 0 ]; then
     ./scripts/diagnose-migration.sh
     exit 1
 fi
+
+# 17. Run NATS Initialization
+echo -e "\e[32mRunning NATS Initialization...\e[0m"
+kubectl delete job motionmesh-nats-init -n motionmesh --ignore-not-found=true
+kubectl apply -f infra/rendered/nats-init-job.yaml
+
+echo -e "\e[32mMonitoring NATS Initialization...\e[0m"
+kubectl wait --for=condition=complete job/motionmesh-nats-init -n motionmesh --timeout=120s || {
+    echo -e "\e[31mERROR: NATS Initialization FAILED.\e[0m"
+    kubectl logs job/motionmesh-nats-init -n motionmesh
+    exit 1
+}
 
 echo -e "\e[32mDeploying API and Workers...\e[0m"
 kubectl apply -f infra/rendered/api.yaml

@@ -1,0 +1,93 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: motionmesh-db-migration
+  namespace: motionmesh
+  labels:
+    app: db-migration
+spec:
+  backoffLimit: 1
+  template:
+    metadata:
+      labels:
+        app: db-migration
+    spec:
+      serviceAccountName: motionmesh-api
+      automountServiceAccountToken: false
+      restartPolicy: Never
+      initContainers:
+        - name: wait-for-db
+          image: postgres:15-alpine
+          envFrom:
+            - secretRef:
+                name: motionmesh-secrets
+          command:
+            - sh
+            - -c
+            - |
+              echo "Waiting for Aurora PostgreSQL to be reachable..."
+              ATTEMPTS=0
+              MAX_ATTEMPTS=60
+              until pg_isready -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$DB_NAME"; do
+                ATTEMPTS=$((ATTEMPTS + 1))
+                echo "Attempt $ATTEMPTS/$MAX_ATTEMPTS"
+                if [ $ATTEMPTS -ge $MAX_ATTEMPTS ]; then
+                  echo "Aurora PostgreSQL is unreachable."
+                  echo "DB_HOST: $DB_HOST"
+                  echo "DB_PORT: $DB_PORT"
+                  echo "DB_NAME: $DB_NAME"
+                  exit 1
+                fi
+                sleep 2
+              done
+              echo "Aurora is reachable!"
+      containers:
+        - name: migrate
+          # The deploy script must replace this with the worker image or an image containing golang-migrate
+          image: 718314448702.dkr.ecr.ap-south-1.amazonaws.com/motionmesh-diagnostic:7eecadc
+          imagePullPolicy: Always
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -e
+              echo "Checking migration state..."
+              VERSION_OUT=$(migrate -path /app/migrations -database "$DATABASE_URL" version 2>&1 || true)
+              echo "Current state: $VERSION_OUT"
+
+              # If the DB is dirty, extract the dirty version number, compute the previous version, and force-clear it
+              if echo "$VERSION_OUT" | grep -qi "dirty"; then
+                DIRTY_VERSION=$(echo "$VERSION_OUT" | grep -oE '[0-9]+' | head -1)
+                PREV_VERSION=$((DIRTY_VERSION - 1))
+                echo "Dirty database detected at version ${DIRTY_VERSION}. Forcing clean state to ${PREV_VERSION}..."
+                migrate -path /app/migrations -database "$DATABASE_URL" force "${PREV_VERSION}"
+                echo "Force complete. Re-checking state..."
+                migrate -path /app/migrations -database "$DATABASE_URL" version 2>&1 || true
+              fi
+
+              echo "Running migrations..."
+              migrate -path /app/migrations -database "$DATABASE_URL" up
+              echo "Migrations complete."
+          envFrom:
+            - secretRef:
+                name: motionmesh-secrets
+            - configMapRef:
+                name: motionmesh-config
+          securityContext:
+            runAsUser: 1001
+            runAsGroup: 1001
+            runAsNonRoot: true
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            seccompProfile:
+              type: RuntimeDefault
+            capabilities:
+              drop:
+                - ALL
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "256Mi"
+            limits:
+              cpu: "1000m"
+              memory: "512Mi"
