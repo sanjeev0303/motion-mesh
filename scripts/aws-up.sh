@@ -266,6 +266,12 @@ export AI_MODE="mock"
 
 mkdir -p infra/rendered
 envsubst < infra/k8s/external-secrets.yaml > infra/rendered/external-secrets.yaml
+
+echo -e "\e[32mWaiting for External Secrets CRDs to be established...\e[0m"
+kubectl wait --for condition=established --timeout=120s crd/secretstores.external-secrets.io || true
+kubectl wait --for condition=established --timeout=120s crd/externalsecrets.external-secrets.io || true
+sleep 5 # API discovery cache padding
+
 kubectl apply -f infra/rendered/external-secrets.yaml
 
 echo -e "\e[32mWaiting for ExternalSecret to synchronize...\e[0m"
@@ -317,7 +323,7 @@ envsubst < infra/k8s/configmap.yaml > infra/rendered/configmap.yaml
 envsubst < infra/k8s/api.yaml > infra/rendered/api.yaml
 envsubst < infra/k8s/worker.yaml > infra/rendered/worker.yaml
 envsubst < infra/k8s/ingress.yaml > infra/rendered/ingress.yaml
-envsubst < infra/k8s/db-migration-job.yaml > infra/rendered/db-migration-job.yaml
+envsubst '${MIGRATION_IMAGE_URI}' < infra/k8s/db-migration-job.yaml > infra/rendered/db-migration-job.yaml
 
 echo -e "\e[32mValidating Placeholders...\e[0m"
 if grep -r '\${' infra/rendered/; then
@@ -329,13 +335,17 @@ if grep -r -E 'localhost|127\.0\.0\.1|motionmesh\.com|motionmesh\.io' infra/rend
     exit 1
 fi
 
-# 14. Run DB Migrations
+# 14. Deploy Configuration
+echo -e "\e[32mDeploying Configuration...\e[0m"
+kubectl apply -f infra/rendered/configmap.yaml
+
+# 15. Run DB Migrations
 echo -e "\e[32mRunning Database Migrations...\e[0m"
+kubectl delete job motionmesh-db-migration -n motionmesh --ignore-not-found=true
 kubectl apply -f infra/rendered/db-migration-job.yaml
 kubectl wait --for=condition=complete job/motionmesh-db-migration -n motionmesh --timeout=300s
 
-echo -e "\e[32mDeploying Configuration, API, and Workers...\e[0m"
-kubectl apply -f infra/rendered/configmap.yaml
+echo -e "\e[32mDeploying API and Workers...\e[0m"
 kubectl apply -f infra/rendered/api.yaml
 kubectl apply -f infra/rendered/worker.yaml
 kubectl apply -f infra/rendered/ingress.yaml

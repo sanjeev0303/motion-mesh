@@ -35,7 +35,7 @@ spec:
       containers:
         - name: migrate
           # The deploy script must replace this with the worker image or an image containing golang-migrate
-          image: ${MIGRATION_IMAGE_URI}
+          image: 
           command:
             - /bin/sh
             - -c

@@ -1,0 +1,115 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: worker
+  namespace: motionmesh
+  labels:
+    app: worker
+spec:
+  replicas: 20
+  selector:
+    matchLabels:
+      app: worker
+  template:
+    metadata:
+      labels:
+        app: worker
+    spec:
+      serviceAccountName: motionmesh-worker
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 600
+      tolerations:
+      - key: "workload"
+        operator: "Equal"
+        value: "worker"
+        effect: "NoSchedule"
+      nodeSelector:
+        NodeGroup: workers
+      topologySpreadConstraints:
+      - maxSkew: 1
+        topologyKey: topology.kubernetes.io/zone
+        whenUnsatisfiable: DoNotSchedule
+        labelSelector:
+          matchLabels:
+            app: worker
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchLabels:
+                  app: worker
+              topologyKey: kubernetes.io/hostname
+      containers:
+      - name: worker
+        image: 718314448702.dkr.ecr.ap-south-1.amazonaws.com/motionmesh-worker:087d19e
+        env:
+        - name: DB_MAX_CONNS
+          valueFrom:
+            configMapKeyRef:
+              name: motionmesh-config
+              key: WORKER_DB_MAX_CONNS
+        - name: DB_MIN_CONNS
+          valueFrom:
+            configMapKeyRef:
+              name: motionmesh-config
+              key: WORKER_DB_MIN_CONNS
+        envFrom:
+        - secretRef:
+            name: motionmesh-secrets
+        - configMapRef:
+            name: motionmesh-config
+        securityContext:
+          runAsNonRoot: true
+          readOnlyRootFilesystem: true
+          allowPrivilegeEscalation: false
+          seccompProfile:
+            type: RuntimeDefault
+          capabilities:
+            drop:
+              - ALL
+        resources:
+          requests:
+            cpu: "4"
+            memory: "8Gi"
+          limits:
+            cpu: "8"
+            memory: "16Gi"
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: worker-hpa
+  namespace: motionmesh
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: worker
+  minReplicas: 20
+  maxReplicas: 100
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 75
+  - type: Resource
+    resource:
+      name: memory
+      target:
+        type: Utilization
+        averageUtilization: 80
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: worker-pdb
+  namespace: motionmesh
+spec:
+  minAvailable: 70%
+  selector:
+    matchLabels:
+      app: worker
