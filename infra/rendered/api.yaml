@@ -37,7 +37,7 @@ spec:
               topologyKey: kubernetes.io/hostname
       containers:
       - name: api
-        image: 718314448702.dkr.ecr.ap-south-1.amazonaws.com/motionmesh-api:8f67277
+        image: 718314448702.dkr.ecr.ap-south-1.amazonaws.com/motionmesh-api:2ba520f
         ports:
         - containerPort: 8080
         env:

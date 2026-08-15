@@ -1,5 +1,38 @@
 #!/bin/bash
 set -euo pipefail
+
+retry_helm_install() {
+    local release_name=$1
+    local repo_name=$2
+    local chart_name=$3
+    local namespace=$4
+    local create_namespace=$5
+    shift 5
+
+    echo -e "\e[32mInstalling ${release_name} (with retry for network limits)...\e[0m"
+    local max_retries=5
+    local retry_count=0
+
+    local ns_args=()
+    if [ "$create_namespace" = "true" ]; then
+        ns_args=(--create-namespace)
+    fi
+
+    until helm repo update "$repo_name" 2>/dev/null || true; \
+          helm upgrade --install "$release_name" "$chart_name" --namespace "$namespace" "${ns_args[@]}" --timeout 10m "$@"; do
+        retry_count=$((retry_count+1))
+        if [ $retry_count -ge $max_retries ]; then
+            echo -e "\e[31mERROR: Failed to install $release_name after $max_retries attempts.\e[0m"
+            exit 1
+        fi
+        echo -e "\e[33mHelm command timed out or failed. Cleaning up partial state and retrying in 30 seconds... ($retry_count/$max_retries)\e[0m"
+        helm uninstall "$release_name" -n "$namespace" --ignore-not-found 2>/dev/null || true
+        if [ "$release_name" = "external-secrets" ]; then
+            kubectl delete secret -n external-secrets -l name=external-secrets --ignore-not-found 2>/dev/null || true
+        fi
+        sleep 30
+    done
+}
 export AWS_PAGER=""   # Disable AWS CLI pager so the script never blocks waiting for input
 
 # MOTIONMESH E2E DEPLOYMENT SCRIPT
@@ -67,6 +100,8 @@ export WORKER_REPO=$(echo "$TF_OUT" | jq -r '.worker_repository_url.value // emp
 export MIGRATION_REPO=$(echo "$TF_OUT" | jq -r '.diagnostic_repository_url.value // empty')
 export EKS_CLUSTER=$(echo "$TF_OUT" | jq -r '.cluster_name.value // empty')
 export AURORA_ENDPOINT=$(echo "$TF_OUT" | jq -r '.aurora_endpoint.value // empty')
+export AURORA_HOST="${AURORA_ENDPOINT%:*}"
+export AURORA_PORT="${AURORA_ENDPOINT##*:}"
 export REDIS_ENDPOINT=$(echo "$TF_OUT" | jq -r '.redis_endpoint.value // empty')
 export S3_BUCKET_ID=$(echo "$TF_OUT" | jq -r '.bucket_id.value // empty')
 export S3_BUCKET_REGION=$(echo "$TF_OUT" | jq -r '.bucket_region.value // empty')
@@ -129,122 +164,40 @@ helm repo add eks https://aws.github.io/eks-charts 2>/dev/null || true
 helm repo add external-secrets https://charts.external-secrets.io 2>/dev/null || true
 helm repo add bitnami https://charts.bitnami.com/bitnami 2>/dev/null || true
 helm repo add prometheus-community https://prometheus-community.github.io/helm-charts 2>/dev/null || true
-helm repo update 2>/dev/null || true
-
-# Metrics Server (use official kubernetes-sigs chart — Bitnami image is paywalled post-Aug 2025)
 helm repo add metrics-server https://kubernetes-sigs.github.io/metrics-server/ 2>/dev/null || true
+helm repo add k8s-sigs-external-dns https://kubernetes-sigs.github.io/external-dns/ 2>/dev/null || true
 
-echo -e "\e[32mInstalling Metrics Server (with retry for GitHub rate limits)...\e[0m"
-MAX_RETRIES=5
-RETRY_COUNT=0
-until helm repo update metrics-server 2>/dev/null || true; \
-  helm upgrade --install metrics-server metrics-server/metrics-server \
-  --namespace kube-system \
-  --timeout 10m \
+retry_helm_install metrics-server metrics-server metrics-server/metrics-server kube-system false \
   --set apiService.create=true \
   --set args="{--kubelet-insecure-tls}" \
   --set resources.requests.cpu=100m \
   --set resources.requests.memory=200Mi \
   --set resources.limits.cpu=500m \
-  --set resources.limits.memory=500Mi; do
-    RETRY_COUNT=$((RETRY_COUNT+1))
-    if [ $RETRY_COUNT -ge $MAX_RETRIES ]; then
-        echo -e "\e[31mERROR: Failed to install Metrics Server after $MAX_RETRIES attempts.\e[0m"
-        exit 1
-    fi
-    echo -e "\e[33mGitHub download/API timed out, retrying in 15 seconds... ($RETRY_COUNT/$MAX_RETRIES)\e[0m"
-    sleep 15
-done
+  --set resources.limits.memory=500Mi
 
-# AWS Load Balancer Controller
-echo -e "\e[32mInstalling AWS Load Balancer Controller (with retry)...\e[0m"
-MAX_RETRIES=5
-RETRY_COUNT=0
-until helm repo update eks 2>/dev/null || true; \
-  helm upgrade --install aws-load-balancer-controller eks/aws-load-balancer-controller \
-  --namespace kube-system \
-  --timeout 10m \
+retry_helm_install aws-load-balancer-controller eks eks/aws-load-balancer-controller kube-system false \
   --set clusterName="${EKS_CLUSTER}" \
   --set serviceAccount.create=true \
   --set serviceAccount.name=aws-load-balancer-controller \
-  --set serviceAccount.annotations."eks\.amazonaws\.com/role-arn"=$LBC_ROLE_ARN; do
-    RETRY_COUNT=$((RETRY_COUNT+1))
-    if [ $RETRY_COUNT -ge $MAX_RETRIES ]; then
-        echo -e "\e[31mERROR: Failed to install AWS Load Balancer Controller after $MAX_RETRIES attempts.\e[0m"
-        exit 1
-    fi
-    echo -e "\e[33mAPI timed out, retrying in 15 seconds... ($RETRY_COUNT/$MAX_RETRIES)\e[0m"
-    sleep 15
-done
+  --set serviceAccount.annotations."eks\.amazonaws\.com/role-arn"="$LBC_ROLE_ARN"
 
-# External Secrets Operator (Must be in external-secrets namespace)
-echo -e "\e[32mInstalling External Secrets (with retry for GitHub rate limits)...\e[0m"
-MAX_RETRIES=5
-RETRY_COUNT=0
-until helm repo update external-secrets 2>/dev/null || true; \
-  helm upgrade --install external-secrets external-secrets/external-secrets \
-  --namespace external-secrets \
-  --create-namespace \
-  --timeout 10m \
+retry_helm_install external-secrets external-secrets external-secrets/external-secrets external-secrets true \
   --set installCRDs=true \
   --set serviceAccount.create=true \
   --set serviceAccount.name=external-secrets \
-  --set serviceAccount.annotations."eks\.amazonaws\.com/role-arn"=$ESO_ROLE_ARN; do
-    RETRY_COUNT=$((RETRY_COUNT+1))
-    if [ $RETRY_COUNT -ge $MAX_RETRIES ]; then
-        echo -e "\e[31mERROR: Failed to install External Secrets after $MAX_RETRIES attempts.\e[0m"
-        exit 1
-    fi
-    echo -e "\e[33mAPI timed out or stream error. Cleaning up partial release state and retrying in 30 seconds... ($RETRY_COUNT/$MAX_RETRIES)\e[0m"
-    # Clean up potentially stuck pending-install/pending-upgrade helm releases to avoid conflicts on retry
-    helm uninstall external-secrets -n external-secrets --ignore-not-found 2>/dev/null || true
-    kubectl delete secret -n external-secrets -l name=external-secrets --ignore-not-found 2>/dev/null || true
-    sleep 30
-done
+  --set serviceAccount.annotations."eks\.amazonaws\.com/role-arn"="$ESO_ROLE_ARN"
 
-# ExternalDNS (use official k8s-sigs chart — Bitnami image is paywalled post-Aug 2025)
-helm repo add k8s-sigs-external-dns https://kubernetes-sigs.github.io/external-dns/ 2>/dev/null || true
-
-echo -e "\e[32mInstalling ExternalDNS (with retry for GitHub rate limits)...\e[0m"
-MAX_RETRIES=5
-RETRY_COUNT=0
-until helm repo update k8s-sigs-external-dns 2>/dev/null || true; \
-  helm upgrade --install external-dns k8s-sigs-external-dns/external-dns \
-  --namespace kube-system \
-  --timeout 10m \
+retry_helm_install external-dns k8s-sigs-external-dns k8s-sigs-external-dns/external-dns kube-system false \
   --set provider.name=aws \
   --set env[0].name=AWS_DEFAULT_REGION \
-  --set env[0].value=$REGION \
+  --set env[0].value="$REGION" \
   --set serviceAccount.create=true \
   --set serviceAccount.name=external-dns \
-  --set serviceAccount.annotations."eks\.amazonaws\.com/role-arn"=$EDNS_ROLE_ARN; do
-    RETRY_COUNT=$((RETRY_COUNT+1))
-    if [ $RETRY_COUNT -ge $MAX_RETRIES ]; then
-        echo -e "\e[31mERROR: Failed to install ExternalDNS after $MAX_RETRIES attempts.\e[0m"
-        exit 1
-    fi
-    echo -e "\e[33mGitHub download/API timed out, retrying in 15 seconds... ($RETRY_COUNT/$MAX_RETRIES)\e[0m"
-    sleep 15
-done
+  --set serviceAccount.annotations."eks\.amazonaws\.com/role-arn"="$EDNS_ROLE_ARN"
 
-# kube-prometheus-stack
-echo -e "\e[32mInstalling Prometheus (with retry for GitHub rate limits)...\e[0m"
-MAX_RETRIES=5
-RETRY_COUNT=0
-until helm repo update prometheus-community 2>/dev/null || true; \
-  helm upgrade --install prometheus prometheus-community/kube-prometheus-stack \
-  --namespace monitoring --create-namespace \
-  --timeout 10m \
+retry_helm_install prometheus prometheus-community prometheus-community/kube-prometheus-stack monitoring true \
   --set grafana.enabled=false \
-  --set alertmanager.enabled=false; do
-    RETRY_COUNT=$((RETRY_COUNT+1))
-    if [ $RETRY_COUNT -ge $MAX_RETRIES ]; then
-        echo -e "\e[31mERROR: Failed to install Prometheus after $MAX_RETRIES attempts.\e[0m"
-        exit 1
-    fi
-    echo -e "\e[33mGitHub download/API timed out, retrying in 15 seconds... ($RETRY_COUNT/$MAX_RETRIES)\e[0m"
-    sleep 15
-done
+  --set alertmanager.enabled=false
 
 # 9. Wait for controllers
 echo -e "\e[32mWaiting for controllers to be ready...\e[0m"
@@ -265,6 +218,7 @@ export STRIPE_MODE="mock"
 export AI_MODE="mock"
 
 mkdir -p infra/rendered
+rm -rf infra/rendered/*
 envsubst < infra/k8s/external-secrets.yaml > infra/rendered/external-secrets.yaml
 
 echo -e "\e[32mWaiting for External Secrets CRDs to be established...\e[0m"
@@ -352,9 +306,16 @@ if ! kubectl get secret motionmesh-secrets -n motionmesh &>/dev/null; then
     exit 1
 fi
 
-echo -e "\e[32mTesting Aurora Connectivity (TCP 5432)...\e[0m"
-kubectl run aurora-test --rm -i --restart=Never --image=alpine:3.18 -n motionmesh -- sh -c "nc -z -w 5 ${AURORA_ENDPOINT} 5432" || {
-    echo -e "\e[31mERROR: Could not connect to Aurora at ${AURORA_ENDPOINT}:5432.\e[0m"
+echo -e "\e[32mTesting Aurora Connectivity (TCP)...\e[0m"
+kubectl run aurora-test --rm -i --restart=Never --image=alpine:3.18 -n motionmesh -- sh -c "nc -z -w 5 ${AURORA_HOST} ${AURORA_PORT}" || {
+    echo -e "\e[31mERROR: Could not connect to Aurora at ${AURORA_HOST}:${AURORA_PORT}.\e[0m"
+    exit 1
+}
+
+echo -e "\e[32mTesting PostgreSQL Authentication...\e[0m"
+kubectl run pg-auth-test --rm -i --restart=Never --image=postgres:15-alpine -n motionmesh \
+  --overrides='{"spec":{"containers":[{"name":"pg-auth-test","image":"postgres:15-alpine","envFrom":[{"secretRef":{"name":"motionmesh-secrets"}}],"command":["sh","-c","pg_isready -h '"${AURORA_HOST}"' -p '"${AURORA_PORT}"' -U $DB_USER -d $DB_NAME"]}]}}' || {
+    echo -e "\e[31mERROR: PostgreSQL Authentication test failed.\e[0m"
     exit 1
 }
 
@@ -376,6 +337,15 @@ for i in {1..90}; do
 
     if [ "$FAILED" -gt 0 ]; then
         echo -e "\e[31mERROR: Database Migration FAILED.\e[0m"
+        ./scripts/diagnose-migration.sh
+        exit 1
+    fi
+
+    POD_STATUSES=$(kubectl get pods -n motionmesh -l job-name=motionmesh-db-migration -o jsonpath='{.items[*].status.containerStatuses[*].state.waiting.reason}' 2>/dev/null || echo "")
+    INIT_POD_STATUSES=$(kubectl get pods -n motionmesh -l job-name=motionmesh-db-migration -o jsonpath='{.items[*].status.initContainerStatuses[*].state.waiting.reason}' 2>/dev/null || echo "")
+    
+    if echo "$POD_STATUSES $INIT_POD_STATUSES" | grep -q -E "ImagePullBackOff|ErrImagePull|CrashLoopBackOff"; then
+        echo -e "\e[31mERROR: Database Migration Pod entered a failed state (BackOff/ErrImagePull).\e[0m"
         ./scripts/diagnose-migration.sh
         exit 1
     fi
