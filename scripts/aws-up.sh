@@ -231,14 +231,11 @@ helm repo add k8s-sigs-external-dns https://kubernetes-sigs.github.io/external-d
 
 FAILED_HELMS=()
 
-retry_helm_install metrics-server metrics-server metrics-server/metrics-server kube-system false \
-  --set apiService.create=true \
-  --set args="{--kubelet-insecure-tls}" \
-  --set resources.requests.cpu=100m \
-  --set resources.requests.memory=200Mi \
-  --set resources.limits.cpu=500m \
-  --set resources.limits.memory=500Mi \
-  || FAILED_HELMS+=(metrics-server)
+echo -e "\e[32mInstalling metrics-server via official manifest (bypassing helm timeout)...\e[0m"
+curl -sL https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml > /tmp/metrics-server-components.yaml
+sed -i 's/- args:/- args:\n        - --kubelet-insecure-tls/g' /tmp/metrics-server-components.yaml
+kubectl apply -f /tmp/metrics-server-components.yaml || FAILED_HELMS+=(metrics-server)
+kubectl patch deployment metrics-server -n kube-system --type='json' -p='[{"op": "add", "path": "/spec/template/spec/containers/0/resources/limits", "value": {"cpu": "500m", "memory": "500Mi"}}]' 2>/dev/null || true
 
 retry_helm_install aws-load-balancer-controller eks eks/aws-load-balancer-controller kube-system false \
   --set clusterName="${EKS_CLUSTER}" \
@@ -348,7 +345,7 @@ podman push "${API_IMAGE_URI}"
 podman build -t "${WORKER_IMAGE_URI}" -f server/worker/Dockerfile server/
 podman push "${WORKER_IMAGE_URI}"
 
-podman build -t "${MIGRATION_IMAGE_URI}" -f server/migrations.Dockerfile .
+podman build --no-cache -t "${MIGRATION_IMAGE_URI}" -f server/migrations.Dockerfile .
 podman push "${MIGRATION_IMAGE_URI}"
 
 echo -e "\e[32mRendering Kubernetes Manifests...\e[0m"

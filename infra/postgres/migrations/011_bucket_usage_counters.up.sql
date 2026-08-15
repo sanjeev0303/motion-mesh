@@ -1,11 +1,7 @@
--- Add denormalized metric columns
-ALTER TABLE buckets ADD COLUMN IF NOT EXISTS total_objects INTEGER NOT NULL DEFAULT 0;
-ALTER TABLE buckets ADD COLUMN IF NOT EXISTS total_bytes BIGINT NOT NULL DEFAULT 0;
-
 -- Backfill existing metrics
 UPDATE buckets b
-SET total_objects = COALESCE((SELECT COUNT(*) FROM objects o WHERE o.bucket_id = b.id), 0),
-    total_bytes = COALESCE((SELECT SUM(size_bytes) FROM objects o WHERE o.bucket_id = b.id), 0);
+SET object_count = COALESCE((SELECT COUNT(*) FROM objects o WHERE o.bucket_id = b.id), 0),
+    storage_used_bytes = COALESCE((SELECT SUM(size_bytes) FROM objects o WHERE o.bucket_id = b.id), 0);
 
 -- Create trigger function to maintain bucket metrics
 CREATE OR REPLACE FUNCTION update_bucket_metrics()
@@ -13,19 +9,19 @@ RETURNS TRIGGER AS $$
 BEGIN
     IF (TG_OP = 'INSERT') THEN
         UPDATE buckets
-        SET total_objects = total_objects + 1,
-            total_bytes = total_bytes + NEW.size_bytes
+        SET object_count = object_count + 1,
+            storage_used_bytes = storage_used_bytes + NEW.size_bytes
         WHERE id = NEW.bucket_id;
         RETURN NEW;
     ELSIF (TG_OP = 'UPDATE') THEN
         UPDATE buckets
-        SET total_bytes = total_bytes - OLD.size_bytes + NEW.size_bytes
+        SET storage_used_bytes = storage_used_bytes - OLD.size_bytes + NEW.size_bytes
         WHERE id = NEW.bucket_id;
         RETURN NEW;
     ELSIF (TG_OP = 'DELETE') THEN
         UPDATE buckets
-        SET total_objects = total_objects - 1,
-            total_bytes = total_bytes - OLD.size_bytes
+        SET object_count = object_count - 1,
+            storage_used_bytes = storage_used_bytes - OLD.size_bytes
         WHERE id = OLD.bucket_id;
         RETURN OLD;
     END IF;
