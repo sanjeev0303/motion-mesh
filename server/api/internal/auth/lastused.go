@@ -49,9 +49,15 @@ return 1
 
 func startLastUsedWorker(rdb *redis.Client) {
 	workerOnce.Do(func() {
-		go func() {
-			ctx := context.Background()
+		ctx := context.Background()
+		if err := lastUsedScript.Load(ctx, rdb).Err(); err != nil {
+			logger.New().Error("last-used: failed to load lastUsedScript: %v", err)
+		}
+		if err := lastUsedMergeScript.Load(ctx, rdb).Err(); err != nil {
+			logger.New().Error("last-used: failed to load lastUsedMergeScript: %v", err)
+		}
 
+		go func() {
 			for {
 				firstKeyID := <-lastUsedQueue
 				batch := make(map[string]struct{}, lastUsedBatchSize)
@@ -99,6 +105,10 @@ func startLastUsedWorker(rdb *redis.Client) {
 
 				if err != nil {
 					logger.New().Error("last-used batch: redis pipeline failed: %v", err)
+					// If we get NOSCRIPT, attempt to reload for next time
+					if hasNoScriptError(commands) {
+						lastUsedScript.Load(ctx, rdb)
+					}
 				}
 
 				for _, cmd := range commands {
@@ -128,6 +138,17 @@ func startLastUsedWorker(rdb *redis.Client) {
 			}
 		}()
 	})
+}
+
+func hasNoScriptError(commands []*redis.Cmd) bool {
+	for _, cmd := range commands {
+		if err := cmd.Err(); err != nil {
+			if err.Error() == "NOSCRIPT No matching script. Please use EVAL." {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // trackLastUsed is deliberately non-blocking on the request hot path.
@@ -231,12 +252,17 @@ func mergeBackFailedBuffer(ctx context.Context, rdb *redis.Client, tempKey, acti
 	}
 
 	pipe := rdb.Pipeline()
+	commands := make([]*redis.Cmd, 0, len(entries))
 	for k, v := range entries {
-		lastUsedMergeScript.Run(ctx, pipe, []string{activeKey}, k, v)
+		cmd := lastUsedMergeScript.Run(ctx, pipe, []string{activeKey}, k, v)
+		commands = append(commands, cmd)
 	}
 	
 	if _, err := pipe.Exec(ctx); err != nil {
 		log.Error("merge-back: failed to merge to active buffer: %v", err)
+		if hasNoScriptError(commands) {
+			lastUsedMergeScript.Load(ctx, rdb)
+		}
 	} else {
 		rdb.Del(ctx, tempKey)
 	}
