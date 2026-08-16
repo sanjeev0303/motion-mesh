@@ -12,16 +12,26 @@ TF_DIR="infra/terraform/envs/benchmark"
 S3_BUCKET=$(cd $TF_DIR && terraform output -raw bucket_id)
 
 echo -e "\e[32m1. Checking DNS Resolution & TLS...\e[0m"
-curl -sI $API_URL/health | head -n 1 | grep "200 OK" || (echo "API DNS/TLS failed" && exit 1)
+# Gate: ensure ALB has an address before attempting DNS/TLS
+ALB_ADDRESS=$(kubectl get ingress motionmesh-api-ingress -n motionmesh -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || echo "")
+if [ -z "$ALB_ADDRESS" ]; then
+    echo -e "\e[31mALB not yet provisioned (no address on ingress). Check certificate status:\e[0m"
+    aws acm describe-certificate \
+        --certificate-arn "$(kubectl get ingress motionmesh-api-ingress -n motionmesh -o jsonpath='{.metadata.annotations.alb\.ingress\.kubernetes\.io/certificate-arn}')" \
+        --region ap-south-1 \
+        --query 'Certificate.{Status:Status,DomainName:DomainName}' --output table 2>/dev/null || true
+    echo "ALB not ready — ACM certificate likely still PENDING_VALIDATION" && exit 1
+fi
+curl -s -i --max-time 10 https://api.motionmesh.co.in/health | head -n 1 | grep "200" || (echo "API DNS/TLS failed" && exit 1)
 echo -e "\e[32m[OK] API DNS and TLS\e[0m"
 
 echo -e "\e[32m2. Checking API Health...\e[0m"
-HEALTH_RESP=$(curl -s $API_URL/health)
+HEALTH_RESP=$(curl -s https://api.motionmesh.co.in/health)
 echo $HEALTH_RESP | grep '"status":"ok"' || (echo "API is not healthy" && exit 1)
 echo -e "\e[32m[OK] API Health Check\e[0m"
 
 echo -e "\e[32m3. Checking SDK Authentication Rejection...\e[0m"
-curl -sI $API_URL/videos | head -n 1 | grep "401 Unauthorized" || (echo "API did not reject unauthenticated request" && exit 1)
+curl -s -i $API_URL/videos | head -n 1 | grep "401" || (echo "API did not reject unauthenticated request" && exit 1)
 echo -e "\e[32m[OK] Authentication Middleware\e[0m"
 
 echo -e "\e[32m4. Checking S3 Direct Access (Should be Blocked)...\e[0m"
@@ -36,18 +46,21 @@ kubectl get pods -n motionmesh -l app=nats | grep "Running" || (echo "NATS Pods 
 echo -e "\e[32m[OK] K8s Workloads are Running\e[0m"
 
 echo -e "\e[32m6. Database Connection Wiring...\e[0m"
-API_POD=$(kubectl get pod -n motionmesh -l app=api -o jsonpath="{.items[0].metadata.name}")
-kubectl exec -n motionmesh $API_POD -- env | grep DATABASE_URL || (echo "DATABASE_URL not found in pod" && exit 1)
-echo -e "\e[32m[OK] Secrets Injected into Pods\e[0m"
+# Read directly from the secret (works on distroless containers)
+kubectl get secret motionmesh-secrets -n motionmesh -o jsonpath='{.data.DATABASE_URL}' | base64 -d | grep -q 'postgres' \
+    || (echo "DATABASE_URL not found in secret" && exit 1)
+echo -e "\e[32m[OK] Secrets Injected (DATABASE_URL present)\e[0m"
 
 echo -e "\e[32m7. Verifying NATS...\e[0m"
-kubectl exec -n motionmesh $API_POD -- env | grep NATS_URL || (echo "NATS_URL not found in pod" && exit 1)
+kubectl get secret motionmesh-secrets -n motionmesh -o jsonpath='{.data.QUEUE_URL}' | base64 -d | grep -q 'nats' \
+    || kubectl get configmap motionmesh-config -n motionmesh -o jsonpath='{.data.QUEUE_URL}' 2>/dev/null | grep -q 'nats' \
+    || (echo "NATS/QUEUE_URL not found in secret or configmap" && exit 1)
 echo -e "\e[32m[OK] NATS configured\e[0m"
 
 echo -e "\e[32m8. Verifying Controllers...\e[0m"
-kubectl get deployments -n kube-system -l app.kubernetes.io/name=aws-load-balancer-controller | grep "1/1" || (echo "ALB Controller not ready" && exit 1)
-kubectl get deployments -n kube-system -l app.kubernetes.io/name=external-dns | grep "1/1" || (echo "ExternalDNS not ready" && exit 1)
-kubectl get deployments -n external-secrets -l app.kubernetes.io/name=external-secrets | grep "1/1" || (echo "External Secrets not ready" && exit 1)
+kubectl get deployments -n kube-system -l app.kubernetes.io/name=aws-load-balancer-controller | grep -E "1/1|2/2" || (echo "ALB Controller not ready" && exit 1)
+kubectl get deployments -n kube-system -l app.kubernetes.io/name=external-dns | grep -E "1/1|2/2" || (echo "ExternalDNS not ready" && exit 1)
+kubectl get deployments -n external-secrets -l app.kubernetes.io/name=external-secrets | grep -E "1/1|2/2" || (echo "External Secrets not ready" && exit 1)
 echo -e "\e[32m[OK] Core Controllers Ready\e[0m"
 
 echo -e "\e[32m====================================================================\e[0m"

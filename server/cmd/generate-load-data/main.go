@@ -158,6 +158,7 @@ func main() {
 				bucketID,
 				accID,
 				fmt.Sprintf("loadtest-bucket-%s", accID[:8]),
+				"ap-south-1",
 				now,
 			}
 
@@ -198,7 +199,7 @@ func main() {
 		_, err = db.CopyFrom(
 			ctx,
 			pgx.Identifier{"buckets"},
-			[]string{"id", "account_id", "name", "created_at"},
+			[]string{"id", "account_id", "name", "region", "created_at"},
 			pgx.CopyFromRows(bucketRows),
 		)
 		if err != nil {
@@ -296,7 +297,7 @@ func main() {
 	}
 
 	// 4. Write data.json
-	file, err := os.Create("tests/load/k6/data.json")
+	file, err := os.Create("data.json")
 	if err != nil {
 		log.Fatalf("failed to create data.json: %v", err)
 	}

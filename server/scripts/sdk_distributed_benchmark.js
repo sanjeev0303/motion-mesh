@@ -107,7 +107,8 @@ function sleep(ms) {
 
 async function runOperation() {
   const op = Math.random();
-  const client = clients[Math.floor(Math.random() * clients.length)];
+  const clientIdx = Math.floor(Math.random() * clients.length);
+  const client = clients[clientIdx];
 
   if (op < 0.4) {
     return client.videos.list({ limit: 10 });
@@ -117,8 +118,7 @@ async function runOperation() {
     return client.buckets.list();
   }
 
-  const videoId =
-    data.video_ids[Math.floor(Math.random() * data.video_ids.length)];
+  const videoId = data.video_ids[clientIdx];
 
   if (op < 0.8) {
     return client.videos.get(videoId);
@@ -155,6 +155,29 @@ async function runTier(targetRPS) {
   const elHistogram = require('perf_hooks').monitorEventLoopDelay({ resolution: 10 });
   elHistogram.enable();
 
+  // Progress reporting every 10s
+  const { exec } = require('child_process');
+  const instanceId = process.env.INSTANCE_ID || "local";
+  const progressInterval = setInterval(() => {
+    const elapsed = ((performance.now() - startedAt) / 1000).toFixed(1);
+    const pct = totalRequests > 0 ? ((requested / totalRequests) * 100).toFixed(1) : 0;
+    console.log(`[${elapsed}s] Progress: ${requested}/${totalRequests} dispatched (${pct}%) | in-flight: ${inFlight} | ok: ${successful} | fail: ${failed}`);
+    
+    // Push custom metrics to CloudWatch
+    const p50 = latencies.getPercentile(0.5) || 0;
+    const p95 = latencies.getPercentile(0.95) || 0;
+    const cmd = `aws cloudwatch put-metric-data --namespace "MotionMesh/Benchmark" --metric-data ` +
+      `MetricName=SuccessfulRequests,Dimensions=[{Name=InstanceId,Value=${instanceId}}],Value=${successful},Unit=Count ` +
+      `MetricName=FailedRequests,Dimensions=[{Name=InstanceId,Value=${instanceId}}],Value=${failed},Unit=Count ` +
+      `MetricName=InFlightRequests,Dimensions=[{Name=InstanceId,Value=${instanceId}}],Value=${inFlight},Unit=Count ` +
+      `MetricName=P50Latency,Dimensions=[{Name=InstanceId,Value=${instanceId}}],Value=${p50},Unit=Milliseconds ` +
+      `MetricName=P95Latency,Dimensions=[{Name=InstanceId,Value=${instanceId}}],Value=${p95},Unit=Milliseconds`;
+    
+    exec(cmd, (err) => {
+      if (err) console.error(`[WARN] Failed to push CloudWatch metrics: ${err.message}`);
+    });
+  }, 10000);
+
   while (requested < totalRequests) {
     const tickStart = performance.now();
 
@@ -178,9 +201,15 @@ async function runTier(targetRPS) {
         .then(() => {
           successful++;
           latencies.add(performance.now() - requestStart);
+          if (successful <= 5 || successful % 1000 === 0) {
+            console.log(`[SUCCESS Sample] Request succeeded.`);
+          }
         })
-        .catch(() => {
+        .catch((err) => {
           failed++;
+          if (failed <= 50 || failed % 100 === 0) {
+            console.error(`[ERROR Sample] Request failed: ${err.message || err.code || err}`);
+          }
         })
         .finally(() => {
           inFlight--;
@@ -195,14 +224,27 @@ async function runTier(targetRPS) {
     }
   }
 
-  // Drain outstanding SDK requests before calculating completion metrics.
-  while (inFlight > 0) {
-    await sleep(5);
-  }
-  
-  elHistogram.disable();
+  // Record dispatch-phase duration BEFORE drain (this is the "test duration")
+  const dispatchEndedAt = performance.now();
+  const durationSec = (dispatchEndedAt - startedAt) / 1000;
 
-  const durationSec = (performance.now() - startedAt) / 1000;
+  clearInterval(progressInterval);
+  console.log(`\n[Dispatch complete] ${durationSec.toFixed(1)}s active | draining ${inFlight} in-flight requests...`);
+
+  // Drain with a max timeout of 2× DURATION_SEC to avoid hanging forever
+  const drainDeadline = performance.now() + DURATION_SEC * 2 * 1000;
+  while (inFlight > 0 && performance.now() < drainDeadline) {
+    await sleep(50);
+  }
+  if (inFlight > 0) {
+    console.warn(`[WARN] ${inFlight} requests still in-flight after drain timeout; treating as failed.`);
+    failed += inFlight;
+    inFlight = 0;
+  }
+  const drainSec = ((performance.now() - dispatchEndedAt) / 1000).toFixed(1);
+  console.log(`[Drain complete] ${drainSec}s drain time.`);
+
+  elHistogram.disable();
   const offeredRPS = sent / durationSec;
   const completed = successful + failed;
   const completedRPS = completed / durationSec;
@@ -216,13 +258,14 @@ async function runTier(targetRPS) {
     successful: successful,
     failed: failed,
     dropped: dropped,
-    duration_seconds: durationSec,
+    duration_seconds: durationSec,        // active dispatch window only
+    drain_seconds: parseFloat(drainSec),  // time waiting for in-flight to settle
     p50_ms: latencies.getPercentile(0.5),
     p95_ms: latencies.getPercentile(0.95),
     p99_ms: latencies.getPercentile(0.99),
     cpu: process.cpuUsage(),
     memory: process.memoryUsage(),
-    network: {}, // Placeholder if net stats are added
+    network: {},
     event_loop_delay: elHistogram.percentile(99) / 1e6
   };
 

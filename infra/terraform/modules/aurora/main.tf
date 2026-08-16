@@ -1,12 +1,11 @@
 resource "aws_db_instance" "this" {
-  identifier           = "motionmesh-${var.environment}"
-  allocated_storage    = 20
-  storage_type         = "gp3"
-  engine               = "postgres"
-  engine_version       = "15.18"
-  instance_class       = "db.t3.micro"
-  db_name              = var.database_name
-  username             = "root"
+  identifier                  = "motionmesh-${var.environment}"
+  engine                      = "postgres"
+  engine_version              = "15.18"
+  instance_class              = "db.t3.micro"
+  allocated_storage           = 20
+  db_name                     = var.database_name
+  username                    = "root"
   manage_master_user_password = true
   
   vpc_security_group_ids = [aws_security_group.this.id]
@@ -14,7 +13,7 @@ resource "aws_db_instance" "this" {
   
   skip_final_snapshot    = true
   apply_immediately      = true
-  
+
   tags = {
     Environment = var.environment
     Terraform   = "true"

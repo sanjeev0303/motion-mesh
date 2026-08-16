@@ -1,0 +1,18 @@
+{
+  "Comment": "ACM DNS validation for ALB",
+  "Changes": [
+    {
+      "Action": "UPSERT",
+      "ResourceRecordSet": {
+        "Name": "_b1614e393f9fd5f957df2543422719ea.motionmesh.co.in.",
+        "Type": "CNAME",
+        "TTL": 300,
+        "ResourceRecords": [
+          {
+            "Value": "_c82e1c8744b10ed5b58d11d2a495e338.jkddzztszm.acm-validations.aws."
+          }
+        ]
+      }
+    }
+  ]
+}

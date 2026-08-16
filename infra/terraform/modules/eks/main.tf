@@ -17,12 +17,18 @@ module "eks" {
     eks-pod-identity-agent = {
       most_recent = true
     }
+    amazon-cloudwatch-observability = {
+      most_recent = true
+    }
   }
 
   eks_managed_node_group_defaults = {
     ami_type       = "AL2023_x86_64_STANDARD"
     instance_types = ["m7i-flex.large"]
     disk_size      = 20
+    iam_role_additional_policies = {
+      CloudWatchAgentServerPolicy = "arn:aws:iam::aws:policy/CloudWatchAgentServerPolicy"
+    }
   }
 
   eks_managed_node_groups = {

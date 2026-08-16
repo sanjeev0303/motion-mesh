@@ -58,9 +58,29 @@ kubectl get deployments -n external-secrets -l app.kubernetes.io/name=external-s
 echo -e "\e[32mPrometheus Operator:\e[0m"
 kubectl get deployments -n monitoring -l app=kube-prometheus-stack-operator || echo "Missing Prometheus"
 echo -e "\e[32mMetrics Server:\e[0m"
-kubectl get deployments -n kube-system -l app.kubernetes.io/name=metrics-server || echo "Missing Metrics Server"
+kubectl get deployments -n kube-system -l k8s-app=metrics-server || echo "Missing Metrics Server"
 echo -e "\e[32m\e[0m"
 
-echo -e "\e[32m--- Load Generators ---\e[0m"
-aws ec2 describe-instances --filters "Name=tag:Role,Values=LoadGenerator" "Name=instance-state-name,Values=running" --query "Reservations[*].Instances[*].[InstanceId, PublicIpAddress]" --output table || echo "No running generators."
+echo -e "\e[32m--- Load Generators (k6 Local Runner) ---\e[0m"
+# EC2-based generators
+LG_OUT=$(aws ec2 describe-instances --filters "Name=tag:Role,Values=LoadGenerator" "Name=instance-state-name,Values=running" \
+    --query "Reservations[*].Instances[*].[InstanceId, PublicIpAddress, InstanceType]" --output table 2>/dev/null || echo "")
+if [ -z "$LG_OUT" ] || [[ "$LG_OUT" == *"None"* ]]; then
+    echo "EC2 Generators: None provisioned (using local k6 runner)"
+else
+    echo "$LG_OUT"
+fi
+# k6 local runner
+if command -v k6 &>/dev/null; then
+    echo "k6 Local Runner:   $(k6 version 2>/dev/null | head -1) [READY]"
+else
+    echo "k6 Local Runner:   NOT INSTALLED — run: curl -L https://github.com/grafana/k6/releases/download/v0.57.0/k6-v0.57.0-linux-amd64.tar.gz | tar xz && mv k6-*/k6 ~/.local/bin/"
+fi
+LATEST_RESULT=$(ls -td tests/load/k6/benchmark-results/20* 2>/dev/null | head -1)
+if [ -n "$LATEST_RESULT" ] && [ -f "${LATEST_RESULT}/report.md" ]; then
+    echo "Last Benchmark:    ${LATEST_RESULT}"
+    grep "Tests run\|Passed\|Failed" "${LATEST_RESULT}/report.md" | sed 's/^/                   /'
+else
+    echo "Last Benchmark:    None — run: ./scripts/run-benchmarks.sh"
+fi
 echo -e "\e[32m====================================================================\e[0m"

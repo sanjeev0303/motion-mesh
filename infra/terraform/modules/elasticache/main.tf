@@ -22,7 +22,7 @@ data "aws_vpc" "this" {
 resource "aws_elasticache_replication_group" "this" {
   replication_group_id       = "motionmesh-${var.environment}"
   description                = "Redis cluster for MotionMesh ${var.environment}"
-  node_type                  = "cache.t4g.medium"
+  node_type                  = "cache.t3.micro"
   num_cache_clusters         = 2
   engine_version             = "7.1"
   port                       = 6379
@@ -31,6 +31,8 @@ resource "aws_elasticache_replication_group" "this" {
   security_group_ids         = [aws_security_group.redis.id]
   automatic_failover_enabled = true
   multi_az_enabled           = true
+  transit_encryption_enabled = true
+  at_rest_encryption_enabled = true
 
   tags = {
     Environment = var.environment

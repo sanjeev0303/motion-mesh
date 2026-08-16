@@ -25,17 +25,6 @@ var (
 	workerOnce    sync.Once
 	localDebounce sync.Map
 
-	// Atomic Redis operation:
-	// acquire a short-lived per-key lock and write the timestamp only when
-	// the lock was acquired. This avoids SETNX + HSET round trips per request.
-	lastUsedScript = redis.NewScript(`
-if redis.call("SET", KEYS[1], "1", "NX", "EX", ARGV[1]) then
-    redis.call("HSET", KEYS[2], ARGV[2], ARGV[3])
-    return 1
-end
-return 0
-`)
-
 	// Atomic Lua merge operation to ensure we only update the active buffer
 	// if the temporary timestamp is strictly greater than the active timestamp.
 	lastUsedMergeScript = redis.NewScript(`
@@ -50,9 +39,6 @@ return 1
 func startLastUsedWorker(rdb *redis.Client) {
 	workerOnce.Do(func() {
 		ctx := context.Background()
-		if err := lastUsedScript.Load(ctx, rdb).Err(); err != nil {
-			logger.New().Error("last-used: failed to load lastUsedScript: %v", err)
-		}
 		if err := lastUsedMergeScript.Load(ctx, rdb).Err(); err != nil {
 			logger.New().Error("last-used: failed to load lastUsedMergeScript: %v", err)
 		}
@@ -84,19 +70,11 @@ func startLastUsedWorker(rdb *redis.Client) {
 
 				start := time.Now()
 				pipe := rdb.Pipeline()
-				commands := make([]*redis.Cmd, 0, len(batch))
+				commands := make([]redis.Cmder, 0, len(batch))
 				timestamp := strconv.FormatInt(time.Now().Unix(), 10)
 
 				for keyID := range batch {
-					lockKey := "mot:api_key:last_used_lock:" + keyID
-					cmd := lastUsedScript.Run(
-						ctx,
-						pipe,
-						[]string{lockKey, lastUsedHashKey},
-						int(lastUsedDebounce/time.Second),
-						keyID,
-						timestamp,
-					)
+					cmd := pipe.HSet(ctx, lastUsedHashKey, keyID, timestamp)
 					commands = append(commands, cmd)
 				}
 
@@ -105,10 +83,6 @@ func startLastUsedWorker(rdb *redis.Client) {
 
 				if err != nil {
 					logger.New().Error("last-used batch: redis pipeline failed: %v", err)
-					// If we get NOSCRIPT, attempt to reload for next time
-					if hasNoScriptError(commands) {
-						lastUsedScript.Load(ctx, rdb)
-					}
 				}
 
 				for _, cmd := range commands {
@@ -140,7 +114,7 @@ func startLastUsedWorker(rdb *redis.Client) {
 	})
 }
 
-func hasNoScriptError(commands []*redis.Cmd) bool {
+func hasNoScriptError(commands []redis.Cmder) bool {
 	for _, cmd := range commands {
 		if err := cmd.Err(); err != nil {
 			if err.Error() == "NOSCRIPT No matching script. Please use EVAL." {
@@ -252,7 +226,7 @@ func mergeBackFailedBuffer(ctx context.Context, rdb *redis.Client, tempKey, acti
 	}
 
 	pipe := rdb.Pipeline()
-	commands := make([]*redis.Cmd, 0, len(entries))
+	commands := make([]redis.Cmder, 0, len(entries))
 	for k, v := range entries {
 		cmd := lastUsedMergeScript.Run(ctx, pipe, []string{activeKey}, k, v)
 		commands = append(commands, cmd)

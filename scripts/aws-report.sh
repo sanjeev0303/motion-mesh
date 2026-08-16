@@ -11,9 +11,9 @@ REPORT_FILE="${REPORT_DIR}/scalability-report.md"
 mkdir -p "${REPORT_DIR}"
 
 # Find the latest benchmark test dir
-LATEST_TEST=$(ls -td benchmark-results/test-* 2>/dev/null | head -1 || echo "")
-if [ -z "$LATEST_TEST" ] || [ ! -f "${LATEST_TEST}/workload.json" ]; then
-    echo -e "\e[32mERROR: No workload.json found in benchmark-results. Run aws-benchmark.sh first.\e[0m"
+LATEST_TEST=$(ls -td tests/load/k6/benchmark-results/test-* 2>/dev/null | head -1 || echo "")
+if [ -z "${LATEST_TEST}" ] || [ ! -f "${LATEST_TEST}/workload.json" ]; then
+    echo -e "\e[32mERROR: No workload.json found in tests/load/k6/benchmark-results. Run aws-benchmark.sh first.\e[0m"
     exit 1
 fi
 
@@ -46,7 +46,8 @@ cat << 'EOF' > "${REPORT_FILE}"
 EOF
 
 # Append dynamic results
-for workload_file in benchmark-results/test-*/workload.json; do
+echo "==================== HISTORICAL SUMMARY ===================="
+for workload_file in tests/load/k6/benchmark-results/test-*/workload.json; do
     if [ -f "$workload_file" ]; then
         TARGET=$(grep -oP '"target_rps": \K[0-9]+' "${workload_file}")
         ACTUAL=$(grep -oP '"actual_rps": \K[0-9.]+' "${workload_file}")

@@ -31,7 +31,7 @@ variable "aurora_engine_version" {
 variable "aurora_instance_class" {
   description = "Aurora instance class"
   type        = string
-  default     = "db.r6g.large"
+  default     = "db.t3.medium"
 }
 
 variable "media_domain_name" {

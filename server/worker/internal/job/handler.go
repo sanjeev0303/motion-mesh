@@ -57,40 +57,17 @@ func NewHandler(db *pgxpool.Pool, store storage.ObjectStorage, up *uploader.Uplo
 
 func (h *Handler) Process(ctx context.Context, videoID string, sourceObjectKey string, transcodeBucketID *string) error {
 	defer func() {
-		var vStatus, cStatus *string
-		err := h.db.QueryRow(context.Background(), "SELECT status, captions_status FROM videos WHERE id = $1::uuid", videoID).Scan(&vStatus, &cStatus)
-		if err != nil {
-			h.log.Error("Failed to query final status for video %s: %v", videoID, err)
-			return
-		}
-		
-		statusStr := "unknown"
-		if vStatus != nil {
-			statusStr = *vStatus
-		}
-		cStatusStr := "unknown"
-		if cStatus != nil {
-			cStatusStr = *cStatus
-		}
-		
-		if statusStr == "ready" && cStatusStr == "ready" {
-			if rand.Intn(100) == 0 {
-				h.log.Info("Job terminated for video %s: status=%s, captions_status=%s (sampled)", videoID, statusStr, cStatusStr)
-			}
-		} else {
-			h.log.Info("Job terminated for video %s: status=%s, captions_status=%s", videoID, statusStr, cStatusStr)
+		if r := recover(); r != nil {
+			h.log.Error("Job panicked for video %s: %v", videoID, r)
+			_ = h.failJob(ctx, videoID, fmt.Errorf("panic: %v", r))
 		}
 	}()
 
 	h.log.Info("Starting processing for video: %s", videoID)
 	// 1. Atomic job claim to ensure exclusivity
-	if err := h.claimJob(ctx, videoID); err != nil {
+	accountID, bucketID, err := h.claimJob(ctx, videoID)
+	if err != nil {
 		return fmt.Errorf("claim job: %w", err)
-	}
-
-	var bucketID string
-	if err := h.db.QueryRow(ctx, "SELECT bucket_id FROM videos WHERE id = $1::uuid", videoID).Scan(&bucketID); err != nil {
-		return fmt.Errorf("query bucket_id: %w", err)
 	}
 	targetBucketID := bucketID
 	if transcodeBucketID != nil && *transcodeBucketID != "" {
@@ -116,11 +93,8 @@ func (h *Handler) Process(ctx context.Context, videoID string, sourceObjectKey s
 	}
 	metrics.WorkerJobPhaseDuration.WithLabelValues("download").Observe(time.Since(downloadStart).Seconds())
 
-	// Run Probe, getAccountID, and idempotency check concurrently — all are
-	// independent reads that can overlap while the disk is warm from the download.
 	var (
 		probeRes      *transcode.ProbeResult
-		accountID     string
 		alreadyEncoded bool
 	)
 	probeStart := time.Now()
@@ -133,18 +107,13 @@ func (h *Handler) Process(ctx context.Context, videoID string, sourceObjectKey s
 			return e
 		})
 		pg.Go(func() error {
-			var e error
-			accountID, e = h.getAccountIDWithRetry(pgCtx, videoID)
-			return e
-		})
-		pg.Go(func() error {
 			masterKey := fmt.Sprintf("videos/%s/hls/master.m3u8", videoID)
 			_, e := h.store.GetObject(pgCtx, masterKey)
 			alreadyEncoded = (e == nil)
 			return nil
 		})
 		if err := pg.Wait(); err != nil {
-			return h.failJob(ctx, videoID, fmt.Errorf("probe/account/idempotency: %w", err))
+			return h.failJob(ctx, videoID, fmt.Errorf("probe/idempotency: %w", err))
 		}
 	}
 	metrics.WorkerJobPhaseDuration.WithLabelValues("probe").Observe(time.Since(probeStart).Seconds())
@@ -531,36 +500,6 @@ func (cw *countingWriter) Write(p []byte) (int, error) {
 	return n, err
 }
 
-func (h *Handler) getAccountID(ctx context.Context, videoID string) (string, error) {
-	var accountID string
-	err := h.db.QueryRow(ctx, "SELECT account_id FROM videos WHERE id = $1", videoID).Scan(&accountID)
-	return accountID, err
-}
-
-// getAccountIDWithRetry retries the account lookup with exponential back-off.
-// This guards against the race where the NATS message is delivered before the
-// API's INSERT transaction has been committed to the DB.
-func (h *Handler) getAccountIDWithRetry(ctx context.Context, videoID string) (string, error) {
-	const maxAttempts = 5
-	delay := 500 * time.Millisecond
-	for attempt := 1; attempt <= maxAttempts; attempt++ {
-		accountID, err := h.getAccountID(ctx, videoID)
-		if err == nil {
-			return accountID, nil
-		}
-		if attempt == maxAttempts {
-			return "", fmt.Errorf("getAccountID after %d attempts: %w", maxAttempts, err)
-		}
-		h.log.Info("getAccountID: video %s not found (attempt %d/%d), retrying in %v", videoID, attempt, maxAttempts, delay)
-		select {
-		case <-ctx.Done():
-			return "", ctx.Err()
-		case <-time.After(delay):
-		}
-		delay *= 2
-	}
-	return "", fmt.Errorf("unreachable")
-}
 
 func (h *Handler) saveObjectsForJob(ctx context.Context, bucketID string, objects []uploader.UploadedFile) error {
 	if len(objects) == 0 {
@@ -588,17 +527,19 @@ func (h *Handler) saveObjectsForJob(ctx context.Context, bucketID string, object
 	return err
 }
 
-func (h *Handler) claimJob(ctx context.Context, videoID string) error {
+func (h *Handler) claimJob(ctx context.Context, videoID string) (string, string, error) {
 	var jobID string
 	err := h.db.QueryRow(ctx, "UPDATE transcode_jobs SET status = $1::text, updated_at = now() WHERE video_id = $2::uuid AND status = $3::text RETURNING id", models.JobStatusProcessing, videoID, models.JobStatusQueued).Scan(&jobID)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return fmt.Errorf("job not found in pending state or already claimed")
+			return "", "", fmt.Errorf("job not found in pending state or already claimed")
 		}
-		return err
+		return "", "", err
 	}
-	_, err = h.db.Exec(ctx, "UPDATE videos SET status = $1::text, updated_at = now() WHERE id = $2::uuid", models.VideoStatusProcessing, videoID)
-	return err
+	
+	var accountID, bucketID string
+	err = h.db.QueryRow(ctx, "UPDATE videos SET status = $1::text, updated_at = now() WHERE id = $2::uuid RETURNING account_id, bucket_id", models.VideoStatusProcessing, videoID).Scan(&accountID, &bucketID)
+	return accountID, bucketID, err
 }
 
 func (h *Handler) updateJobProgress(ctx context.Context, videoID string, percent int) error {

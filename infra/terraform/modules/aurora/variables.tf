@@ -28,7 +28,7 @@ variable "engine_version" {
 variable "instance_class" {
   description = "Aurora instance class"
   type        = string
-  default     = "db.r6g.large"
+  default     = "db.t3.medium"
 }
 
 variable "allowed_security_group_ids" {

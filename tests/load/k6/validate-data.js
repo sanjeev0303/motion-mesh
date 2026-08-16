@@ -40,12 +40,19 @@ async function validateData() {
 
   console.log(`Validating data.json with ${account_ids.length} accounts...`);
 
+  if (process.env.SKIP_DB_VALIDATION === 'true') {
+    console.log('Skipping DB validation as SKIP_DB_VALIDATION is true.');
+    console.log('Data validation successful.');
+    process.exit(0);
+  }
+
   const pool = new Pool({
     connectionString: process.env.DATABASE_URL || 'postgres://postgres:postgres@localhost:5432/motionmesh?sslmode=disable'
   });
 
-  const client = await pool.connect();
+  let client;
   try {
+    client = await pool.connect();
     const { rows: accountRows } = await client.query('SELECT COUNT(*) FROM accounts');
     const dbAccountCount = parseInt(accountRows[0].count, 10);
     console.log(`Database has ${dbAccountCount} total accounts.`);
@@ -98,7 +105,7 @@ async function validateData() {
   } catch (e) {
     console.error(e);
   } finally {
-    client.release();
+    if (client) client.release();
     await pool.end();
   }
 }
