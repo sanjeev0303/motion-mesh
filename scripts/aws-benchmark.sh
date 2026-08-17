@@ -119,7 +119,7 @@ DASHBOARD_JSON=$(cat << 'EOF'
             "height": 6,
             "properties": {
                 "metrics": [
-                    [ "AWS/RDS", "CPUUtilization", "DBClusterIdentifier", "motionmesh-benchmark" ]
+                    [ "AWS/RDS", "CPUUtilization", "DBInstanceIdentifier", "motionmesh-benchmark" ]
                 ],
                 "view": "timeSeries",
                 "stacked": false,

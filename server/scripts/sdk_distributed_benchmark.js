@@ -138,10 +138,8 @@ async function runTier(targetRPS) {
 
   const totalRequests = targetRPS * DURATION_SEC;
   const tickMs = 10;
-  const requestsPerTick = Math.max(
-    1,
-    Math.round((targetRPS * tickMs) / 1000)
-  );
+  const requestsPerTick = (targetRPS * tickMs) / 1000;
+  let accumulatedRequests = 0;
 
   let requested = 0;
   let sent = 0;
@@ -163,16 +161,20 @@ async function runTier(targetRPS) {
     const pct = totalRequests > 0 ? ((requested / totalRequests) * 100).toFixed(1) : 0;
     console.log(`[${elapsed}s] Progress: ${requested}/${totalRequests} dispatched (${pct}%) | in-flight: ${inFlight} | ok: ${successful} | fail: ${failed}`);
     
-    // Push custom metrics to CloudWatch
+    // Push custom metrics to CloudWatch (JSON format - required by AWS CLI v2 Python for nested Dimensions)
     const p50 = latencies.getPercentile(0.5) || 0;
     const p95 = latencies.getPercentile(0.95) || 0;
-    const cmd = `aws cloudwatch put-metric-data --namespace "MotionMesh/Benchmark" --metric-data ` +
-      `MetricName=SuccessfulRequests,Dimensions=[{Name=InstanceId,Value=${instanceId}}],Value=${successful},Unit=Count ` +
-      `MetricName=FailedRequests,Dimensions=[{Name=InstanceId,Value=${instanceId}}],Value=${failed},Unit=Count ` +
-      `MetricName=InFlightRequests,Dimensions=[{Name=InstanceId,Value=${instanceId}}],Value=${inFlight},Unit=Count ` +
-      `MetricName=P50Latency,Dimensions=[{Name=InstanceId,Value=${instanceId}}],Value=${p50},Unit=Milliseconds ` +
-      `MetricName=P95Latency,Dimensions=[{Name=InstanceId,Value=${instanceId}}],Value=${p95},Unit=Milliseconds`;
-    
+    const dims = JSON.stringify([{ Name: 'InstanceId', Value: instanceId }]);
+    const metricData = JSON.stringify([
+      { MetricName: 'SuccessfulRequests', Dimensions: [{ Name: 'InstanceId', Value: instanceId }], Value: successful, Unit: 'Count', StorageResolution: 1 },
+      { MetricName: 'FailedRequests',     Dimensions: [{ Name: 'InstanceId', Value: instanceId }], Value: failed,     Unit: 'Count', StorageResolution: 1 },
+      { MetricName: 'InFlightRequests',   Dimensions: [{ Name: 'InstanceId', Value: instanceId }], Value: inFlight,   Unit: 'Count', StorageResolution: 1 },
+      { MetricName: 'P50Latency',         Dimensions: [{ Name: 'InstanceId', Value: instanceId }], Value: p50,        Unit: 'Milliseconds', StorageResolution: 1 },
+      { MetricName: 'P95Latency',         Dimensions: [{ Name: 'InstanceId', Value: instanceId }], Value: p95,        Unit: 'Milliseconds', StorageResolution: 1 },
+    ]);
+    const region = process.env.AWS_REGION || 'ap-south-1';
+    const cmd = `aws cloudwatch put-metric-data --namespace "MotionMesh/Benchmark" --metric-data '${metricData}' --region ${region}`;
+
     exec(cmd, (err) => {
       if (err) console.error(`[WARN] Failed to push CloudWatch metrics: ${err.message}`);
     });
@@ -181,10 +183,15 @@ async function runTier(targetRPS) {
   while (requested < totalRequests) {
     const tickStart = performance.now();
 
-    const remaining = totalRequests - requested;
-    const batchSize = Math.min(requestsPerTick, remaining);
+    accumulatedRequests += requestsPerTick;
+    let batchSize = Math.floor(accumulatedRequests);
+    
+    if (batchSize > 0) {
+      accumulatedRequests -= batchSize;
+      const remaining = totalRequests - requested;
+      batchSize = Math.min(batchSize, remaining);
 
-    for (let i = 0; i < batchSize; i++) {
+      for (let i = 0; i < batchSize; i++) {
       requested++;
 
       if (inFlight >= MAX_CONCURRENCY) {
@@ -214,6 +221,7 @@ async function runTier(targetRPS) {
         .finally(() => {
           inFlight--;
         });
+    }
     }
 
     const elapsed = performance.now() - tickStart;

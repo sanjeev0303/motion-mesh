@@ -28,16 +28,43 @@ if [ "${MODE}" = "stop" ]; then
         kubectl scale deployment worker -n motionmesh --replicas=0 2>/dev/null || true
     fi
 
-    echo -e "\e[32mStopping any EC2 Load Generators...\e[0m"
+    echo -e "\e[32mStopping EC2 Load Generators...\e[0m"
     INSTANCE_IDS=$(aws ec2 describe-instances \
         --filters "Name=tag:Role,Values=LoadGenerator" "Name=instance-state-name,Values=running" \
         --query "Reservations[*].Instances[*].InstanceId" \
         --output text --region "${REGION}")
     if [ -n "${INSTANCE_IDS}" ]; then
-        aws ec2 stop-instances --instance-ids ${INSTANCE_IDS} --region "${REGION}"
+        aws ec2 stop-instances --instance-ids ${INSTANCE_IDS} --region "${REGION}" >/dev/null 2>&1 || true
+        echo -e "\e[32mEC2 Load Generators stopped.\e[0m"
     else
         echo -e "\e[32mNo running load generators found.\e[0m"
     fi
+
+    echo -e "\e[32mScaling down EKS Node Groups to 0...\e[0m"
+    NODEGROUPS=$(aws eks list-nodegroups --cluster-name "motionmesh-${ENV}" --region "${REGION}" --query "nodegroups[]" --output text 2>/dev/null || echo "")
+    for ng in $NODEGROUPS; do
+        echo "Scaling node group $ng to 0..."
+        aws eks update-nodegroup-config \
+            --cluster-name "motionmesh-${ENV}" \
+            --nodegroup-name "$ng" \
+            --scaling-config minSize=0,desiredSize=0 \
+            --region "${REGION}" >/dev/null 2>&1 || true
+    done
+
+    echo -e "\e[32mStopping RDS Database...\e[0m"
+    DB_ID="motionmesh-${ENV}"
+    DB_STATUS=$(aws rds describe-db-instances --db-instance-identifier "${DB_ID}" --region "${REGION}" --query "DBInstances[0].DBInstanceStatus" --output text 2>/dev/null || echo "")
+    if [ "$DB_STATUS" = "available" ]; then
+        aws rds stop-db-instance --db-instance-identifier "${DB_ID}" --region "${REGION}" >/dev/null 2>&1 || true
+        echo -e "\e[32mRDS instance ${DB_ID} is stopping...\e[0m"
+    elif [ "$DB_STATUS" = "stopped" ]; then
+        echo -e "\e[32mRDS instance ${DB_ID} is already stopped.\e[0m"
+    else
+        echo -e "\e[32mRDS instance ${DB_ID} status is '${DB_STATUS}', cannot stop right now.\e[0m"
+    fi
+
+    echo -e "\e[33mNote: Amazon ElastiCache (Redis) does not support being 'stopped'. It will continue to incur costs unless destroyed.\e[0m"
+
     echo -e "\e[32mStop complete. Persistent data (RDS, Redis, S3, NATS PVs) is intact.\e[0m"
     exit 0
 
