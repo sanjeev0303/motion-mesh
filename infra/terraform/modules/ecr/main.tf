@@ -4,6 +4,7 @@ module "ecr" {
 
   repository_name                 = var.repository_name
   repository_image_tag_mutability = "IMMUTABLE"
+  repository_force_delete         = true
 
   repository_read_write_access_arns = []
   create_lifecycle_policy           = true

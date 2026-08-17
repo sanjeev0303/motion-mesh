@@ -99,12 +99,11 @@ elif [ "${MODE}" = "destroy" ]; then
     echo -ne "\e[32mDelete S3 Benchmark Data? (Type 'DELETE BENCHMARK DATA' to confirm): \e[0m"
     read -r S3_CONFIRM
     if [ "${S3_CONFIRM}" = "DELETE BENCHMARK DATA" ]; then
-        # Try Terraform output first; fall back to AWS CLI tag discovery
-        BUCKET=$(terraform output -raw bucket_id 2>/dev/null || \
-            aws s3api list-buckets \
-                --query "Buckets[?contains(Name, 'motionmesh') && contains(Name, 'ap-south-1')].Name | [0]" \
-                --output text 2>/dev/null || echo "")
-        if [ -n "${BUCKET}" ] && [ "${BUCKET}" != "None" ]; then
+        # Use AWS CLI to find the bucket by name matching
+        BUCKET=$(aws s3api list-buckets \
+            --query "Buckets[?contains(Name, 'motionmesh') && contains(Name, 'ap-south-1')].Name | [0]" \
+            --output text 2>/dev/null || echo "")
+        if [ -n "${BUCKET}" ] && [ "${BUCKET}" != "None" ] && [ "${BUCKET}" != "null" ]; then
             echo -e "\e[32mEmptying bucket ${BUCKET}...\e[0m"
             aws s3 rm "s3://${BUCKET}" --recursive --region "${REGION}" || true
         else

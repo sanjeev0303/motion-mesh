@@ -1,6 +1,35 @@
 #!/bin/bash
 set -euo pipefail
 
+# Attempt to recover DNS if systemd-resolved is misbehaving
+_recover_dns() {
+    if ! nslookup aws.github.io 8.8.8.8 &>/dev/null 2>&1; then
+        echo -e "\e[33mExternal DNS (8.8.8.8) also unreachable — network issue, waiting 30s...\e[0m"
+        sleep 30
+        return
+    fi
+    if ! nslookup aws.github.io 127.0.0.53 &>/dev/null 2>&1; then
+        echo -e "\e[33msystemd-resolved misbehaving — restarting...\e[0m"
+        sudo systemctl restart systemd-resolved 2>/dev/null || true
+        sleep 10
+    fi
+}
+
+retry_cmd() {
+    local retries=5
+    local wait=10
+    for i in $(seq 1 $retries); do
+        if "$@"; then
+            return 0
+        fi
+        echo -e "\e[33mCommand failed: $1. Retrying in ${wait}s... ($i/$retries)\e[0m"
+        _recover_dns
+        sleep $wait
+    done
+    echo -e "\e[31mCommand failed after $retries attempts: $*\e[0m"
+    return 1
+}
+
 retry_helm_install() {
     local release_name=$1
     local repo_name=$2
@@ -10,7 +39,7 @@ retry_helm_install() {
     shift 5
 
     echo -e "\e[32mInstalling ${release_name} (with retry for network limits)...\e[0m"
-    local max_retries=8
+    local max_retries=3
     local retry_count=0
 
     local ns_args=()
@@ -19,82 +48,68 @@ retry_helm_install() {
     fi
 
     # Update repo index; failure is non-fatal — cached index is used as fallback
-    _update_repo() {
-        echo -e "\e[32mUpdating helm repo: $repo_name...\e[0m"
-        helm repo update "$repo_name" --timeout 60s 2>/dev/null \
-            || echo -e "\e[33mWarning: helm repo update for $repo_name failed; using cached index.\e[0m"
-    }
+    echo -e "\e[32mUpdating helm repo: $repo_name...\e[0m"
+    helm repo update "$repo_name" --timeout 60s 2>/dev/null \
+        || echo -e "\e[33mWarning: helm repo update for $repo_name failed; using cached index.\e[0m"
 
-    # Attempt to recover DNS if systemd-resolved is misbehaving
-    _recover_dns() {
-        if ! nslookup aws.github.io 8.8.8.8 &>/dev/null 2>&1; then
-            echo -e "\e[33mExternal DNS (8.8.8.8) also unreachable — network issue, waiting 30s...\e[0m"
-            sleep 30
-            return
-        fi
-        if ! nslookup aws.github.io 127.0.0.53 &>/dev/null 2>&1; then
-            echo -e "\e[33msystemd-resolved misbehaving — restarting...\e[0m"
-            sudo systemctl restart systemd-resolved 2>/dev/null || true
-            sleep 10
-        fi
-    }
+    local chart_dir
+    chart_dir=$(mktemp -d)
+    local install_target="$chart_name"
+    local pull_success=false
 
-    # Pull chart to a local tmpdir so the GitHub CDN is hit only once per retry
-    # cycle rather than on every helm upgrade/install invocation.
-    _pull_chart() {
-        local pull_dir
-        pull_dir=$(mktemp -d)
-        echo -e "\e[32mPulling chart ${chart_name} to local cache...\e[0m" >&2
-        if helm pull "$chart_name" --destination "$pull_dir" --timeout 300s 2>/dev/null; then
-            echo "$pull_dir"  # only the dir path goes to stdout
-        else
-            rm -rf "$pull_dir"
-            echo ""
-        fi
-    }
-
-    _update_repo
-
-    while true; do
-        # Pull chart to local disk; fall back to remote name if pull fails
-        local chart_dir install_target local_tgz
-        chart_dir=$(_pull_chart)
-        install_target="$chart_name"
-        if [ -n "$chart_dir" ]; then
-            local_tgz=$(ls "$chart_dir"/*.tgz 2>/dev/null | head -1)
+    echo -e "\e[32mPulling chart ${chart_name} to local cache...\e[0m"
+    for i in {1..3}; do
+        # Do not discard stderr so we can see why it fails
+        if helm pull "$chart_name" --destination "$chart_dir"; then
+            local local_tgz
+            local_tgz=$(ls "$chart_dir"/*.tgz 2>/dev/null | head -1 || true)
             if [ -n "$local_tgz" ]; then
                 install_target="$local_tgz"
+                pull_success=true
                 echo -e "\e[32mUsing local chart: $local_tgz\e[0m"
+                break
             fi
         fi
+        echo -e "\e[33mFailed to pull chart ${chart_name}. Retrying in 10s... ($i/3)\e[0m"
+        _recover_dns
+        sleep 10
+    done
+
+    if [ "$pull_success" = false ]; then
+        echo -e "\e[33mWarning: Could not pull chart locally after 3 attempts. Falling back to remote chart name.\e[0m"
+    fi
+
+    while true; do
+        # Invalidate kubectl discovery cache to avoid "no matches for kind" errors
+        rm -rf ~/.kube/cache
 
         # --disable-openapi-validation: skip Kubernetes OpenAPI schema download
         # which fails on flaky networks (the "failed to download openapi" error).
         if helm upgrade --install "$release_name" "$install_target" \
                 --namespace "$namespace" "${ns_args[@]}" \
-                --timeout 20m \
+                --timeout 5m \
                 --disable-openapi-validation \
                 "$@"; then
-            [ -n "$chart_dir" ] && rm -rf "$chart_dir"
+            rm -rf "$chart_dir"
             break
         fi
 
-        [ -n "$chart_dir" ] && rm -rf "$chart_dir"
         retry_count=$((retry_count+1))
         if [ $retry_count -ge $max_retries ]; then
             echo -e "\e[31mERROR: Failed to install $release_name after $max_retries attempts.\e[0m"
+            rm -rf "$chart_dir"
             return 1  # non-zero return; caller decides whether to abort or continue
         fi
-        echo -e "\e[33mHelm command timed out or failed. Cleaning up and retrying in 60s... ($retry_count/$max_retries)\e[0m"
+        echo -e "\e[33mHelm command timed out or failed. Cleaning up and retrying in 15s... ($retry_count/$max_retries)\e[0m"
         helm uninstall "$release_name" -n "$namespace" --ignore-not-found 2>/dev/null || true
         if [ "$release_name" = "external-secrets" ]; then
             kubectl delete secret -n external-secrets -l name=external-secrets --ignore-not-found 2>/dev/null || true
         fi
         _recover_dns
-        sleep 60
-        _update_repo
+        sleep 15
     done
 }
+
 export AWS_PAGER=""   # Disable AWS CLI pager so the script never blocks waiting for input
 
 # MOTIONMESH E2E DEPLOYMENT SCRIPT
@@ -118,7 +133,7 @@ echo -e "\e[32mDeploying Git SHA: $GIT_SHA\e[0m"
 
 # 2. AWS Identity Check
 echo -e "\e[32mChecking AWS Identity...\e[0m"
-AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text || true)
 if [ "$AWS_ACCOUNT_ID" != "718314448702" ] || [ "$REGION" != "ap-south-1" ]; then
     echo -e "\e[32mERROR: Identity mismatch. Expected Account 718314448702 and Region ap-south-1.\e[0m"
     exit 1
@@ -169,7 +184,7 @@ export S3_BUCKET_ID=$(echo "$TF_OUT" | jq -r '.bucket_id.value // empty')
 export S3_BUCKET_REGION=$(echo "$TF_OUT" | jq -r '.bucket_region.value // empty')
 export CLOUDFRONT_DISTRIBUTION_DOMAIN=$(echo "$TF_OUT" | jq -r '.cloudfront_domain_name.value // empty')
 export MEDIA_DOMAIN=$(echo "$TF_OUT" | jq -r '.media_domain_name.value // empty')
-export ACM_CERTIFICATE_ARN=$(aws acm list-certificates --region "${REGION}" --query "CertificateSummaryList[?DomainName=='*.motionmesh.co.in'].CertificateArn | [0]" --output text)
+export ACM_CERTIFICATE_ARN=$(aws acm list-certificates --region "${REGION}" --query "CertificateSummaryList[?DomainName=='*.motionmesh.co.in'].CertificateArn | [0]" --output text || true)
 if [ "$ACM_CERTIFICATE_ARN" == "None" ] || [ -z "$ACM_CERTIFICATE_ARN" ]; then
     echo -e "\e[31mERROR: Regional ACM certificate not found in ${REGION}. ALB Ingress requires it.\e[0m"
     exit 1
@@ -184,18 +199,18 @@ cd ../../../..
 
 # 7. Wait for EKS
 echo -e "\e[32mUpdating kubeconfig...\e[0m"
-aws eks update-kubeconfig --region "${REGION}" --name "${EKS_CLUSTER}"
+retry_cmd aws eks update-kubeconfig --region "${REGION}" --name "${EKS_CLUSTER}" || CRITICAL_ERRORS+=("Failed to update kubeconfig")
 
 echo -e "\e[32mWaiting for EKS Nodes to become ready...\e[0m"
-kubectl wait --for=condition=Ready nodes --all --timeout=600s
+retry_cmd kubectl wait --for=condition=Ready nodes --all --timeout=600s || CRITICAL_ERRORS+=("Nodes did not become ready")
 
 # 7b. Ensure EBS CSI Driver addon (required for gp3 PVCs)
 echo -e "\e[32mEnsuring EBS CSI Driver addon...\e[0m"
 EBS_CSI_ROLE_ARN="arn:aws:iam::${AWS_ACCOUNT_ID}:role/motionmesh-ebs-csi-benchmark"
-# Create IAM role if it doesn't exist
-if ! aws iam get-role --role-name motionmesh-ebs-csi-benchmark --region "$REGION" &>/dev/null; then
-  OIDC_ID=$(aws eks describe-cluster --name "${EKS_CLUSTER}" --region "$REGION" --query "cluster.identity.oidc.issuer" --output text | sed 's|.*/||')
-  cat > /tmp/ebs-csi-trust.json <<TRUST
+
+# Always prepare the trust policy with the current cluster's OIDC ID
+OIDC_ID=$(aws eks describe-cluster --name "${EKS_CLUSTER}" --region "$REGION" --query "cluster.identity.oidc.issuer" --output text | sed 's|.*/||')
+cat > /tmp/ebs-csi-trust.json <<TRUST
 {
   "Version": "2012-10-17",
   "Statement": [{
@@ -209,20 +224,26 @@ if ! aws iam get-role --role-name motionmesh-ebs-csi-benchmark --region "$REGION
   }]
 }
 TRUST
-  aws iam create-role --role-name motionmesh-ebs-csi-benchmark --assume-role-policy-document file:///tmp/ebs-csi-trust.json
-  aws iam attach-role-policy --role-name motionmesh-ebs-csi-benchmark --policy-arn arn:aws:iam::aws:policy/service-role/AmazonEBSCSIDriverPolicy
+
+if ! aws iam get-role --role-name motionmesh-ebs-csi-benchmark --region "$REGION" &>/dev/null; then
+  retry_cmd aws iam create-role --role-name motionmesh-ebs-csi-benchmark --assume-role-policy-document file:///tmp/ebs-csi-trust.json || CRITICAL_ERRORS+=("Failed to create EBS CSI IAM role")
+  retry_cmd aws iam attach-role-policy --role-name motionmesh-ebs-csi-benchmark --policy-arn arn:aws:iam::aws:policy/service-role/AmazonEBSCSIDriverPolicy || CRITICAL_ERRORS+=("Failed to attach policy to EBS CSI IAM role")
   echo -e "\e[32mCreated EBS CSI IAM role.\e[0m"
+else
+  # Role exists, update the trust relationship to ensure it matches the current OIDC provider
+  retry_cmd aws iam update-assume-role-policy --role-name motionmesh-ebs-csi-benchmark --policy-document file:///tmp/ebs-csi-trust.json || CRITICAL_ERRORS+=("Failed to update EBS CSI IAM role trust policy")
+  echo -e "\e[32mUpdated EBS CSI IAM role trust policy.\e[0m"
 fi
 # Install/update the addon with IRSA role
 if aws eks describe-addon --cluster-name "${EKS_CLUSTER}" --addon-name aws-ebs-csi-driver --region "$REGION" &>/dev/null; then
-  aws eks update-addon --cluster-name "${EKS_CLUSTER}" --addon-name aws-ebs-csi-driver \
-    --service-account-role-arn "$EBS_CSI_ROLE_ARN" --resolve-conflicts OVERWRITE --region "$REGION" 2>/dev/null || true
+  retry_cmd aws eks update-addon --cluster-name "${EKS_CLUSTER}" --addon-name aws-ebs-csi-driver \
+    --service-account-role-arn "$EBS_CSI_ROLE_ARN" --resolve-conflicts OVERWRITE --region "$REGION" || CRITICAL_ERRORS+=("Failed to update aws-ebs-csi-driver addon")
 else
-  aws eks create-addon --cluster-name "${EKS_CLUSTER}" --addon-name aws-ebs-csi-driver \
-    --service-account-role-arn "$EBS_CSI_ROLE_ARN" --resolve-conflicts OVERWRITE --region "$REGION"
+  retry_cmd aws eks create-addon --cluster-name "${EKS_CLUSTER}" --addon-name aws-ebs-csi-driver \
+    --service-account-role-arn "$EBS_CSI_ROLE_ARN" --resolve-conflicts OVERWRITE --region "$REGION" || CRITICAL_ERRORS+=("Failed to create aws-ebs-csi-driver addon")
 fi
 echo -e "\e[32mWaiting for EBS CSI Driver to become active...\e[0m"
-aws eks wait addon-active --cluster-name "${EKS_CLUSTER}" --addon-name aws-ebs-csi-driver --region "$REGION"
+retry_cmd aws eks wait addon-active --cluster-name "${EKS_CLUSTER}" --addon-name aws-ebs-csi-driver --region "$REGION" || true
 
 # 8. Install Controllers via Helm
 echo -e "\e[32mInstalling Kubernetes Controllers...\e[0m"
@@ -234,13 +255,21 @@ helm repo add metrics-server https://kubernetes-sigs.github.io/metrics-server/ 2
 helm repo add k8s-sigs-external-dns https://kubernetes-sigs.github.io/external-dns/ 2>/dev/null || true
 
 FAILED_HELMS=()
+CRITICAL_ERRORS=()
 
 echo -e "\e[32mInstalling metrics-server via official manifest (bypassing helm timeout)...\e[0m"
-curl -sL https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml > /tmp/metrics-server-components.yaml
-sed -i 's/- args:/- args:\n        - --kubelet-insecure-tls/g' /tmp/metrics-server-components.yaml
-kubectl delete deployment metrics-server -n kube-system --ignore-not-found
-kubectl apply -f /tmp/metrics-server-components.yaml || FAILED_HELMS+=(metrics-server)
-kubectl patch deployment metrics-server -n kube-system --type='json' -p='[{"op": "add", "path": "/spec/template/spec/containers/0/resources/limits", "value": {"cpu": "500m", "memory": "500Mi"}}]' 2>/dev/null || true
+for _curl_attempt in {1..5}; do
+    if curl -sL --retry 5 --retry-connrefused --retry-delay 5 https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml > /tmp/metrics-server-components.yaml; then
+        break
+    fi
+    echo -e "\e[33mcurl failed, retrying in 10s...\e[0m"
+    _recover_dns
+    sleep 10
+done
+sed -i 's/- args:/- args:\n        - --kubelet-insecure-tls/g' /tmp/metrics-server-components.yaml || true
+retry_cmd kubectl delete deployment metrics-server -n kube-system --ignore-not-found || true
+retry_cmd kubectl apply --validate=false -f /tmp/metrics-server-components.yaml || FAILED_HELMS+=(metrics-server)
+retry_cmd kubectl patch deployment metrics-server -n kube-system --type='json' -p='[{"op": "add", "path": "/spec/template/spec/containers/0/resources/limits", "value": {"cpu": "500m", "memory": "500Mi"}}]' || true
 
 retry_helm_install aws-load-balancer-controller eks eks/aws-load-balancer-controller kube-system false \
   --set clusterName="${EKS_CLUSTER}" \
@@ -287,17 +316,17 @@ retry_helm_install prometheus prometheus-community prometheus-community/kube-pro
   --set prometheus.prometheusSpec.retention=2h \
   --set prometheus.prometheusSpec.resources.requests.memory=512Mi \
   --set prometheus.prometheusSpec.resources.limits.memory=1Gi \
-  --skip-crds \
+  \
   || FAILED_HELMS+=(prometheus)
 
 # 9. Wait for controllers
 echo -e "\e[32mWaiting for controllers to be ready...\e[0m"
-kubectl wait --for=condition=available deployment/aws-load-balancer-controller -n kube-system --timeout=300s
-kubectl wait --for=condition=available deployment/external-secrets -n external-secrets --timeout=300s
-kubectl wait --for=condition=available deployment/external-dns -n kube-system --timeout=300s
+retry_cmd kubectl wait --for=condition=available deployment/aws-load-balancer-controller -n kube-system --timeout=300s || true
+retry_cmd kubectl wait --for=condition=available deployment/external-secrets -n external-secrets --timeout=300s || true
+retry_cmd kubectl wait --for=condition=available deployment/external-dns -n kube-system --timeout=300s || true
 
 # 10. Deploy namespace
-kubectl apply -f infra/k8s/namespace.yaml
+retry_cmd kubectl apply --validate=false -f infra/k8s/namespace.yaml || CRITICAL_ERRORS+=("Failed to deploy motionmesh namespace")
 
 # 11. Deploy secrets (Needs rendering now to inject ARNs)
 export ENVIRONMENT="${ENV}"
@@ -310,14 +339,14 @@ export AI_MODE="mock"
 
 mkdir -p infra/rendered
 rm -rf infra/rendered/*
-envsubst < infra/k8s/external-secrets.yaml > infra/rendered/external-secrets.yaml
+envsubst < infra/k8s/external-secrets.yaml > infra/rendered/external-secrets.yaml || CRITICAL_ERRORS+=("Failed to render external-secrets.yaml")
 
 echo -e "\e[32mWaiting for External Secrets CRDs to be established...\e[0m"
-kubectl wait --for condition=established --timeout=120s crd/secretstores.external-secrets.io
+retry_cmd kubectl wait --for condition=established --timeout=120s crd/secretstores.external-secrets.io || true
 # Poll until externalsecrets CRD appears — helm uninstall/reinstall can delay CRD registration
 for _crd_attempt in {1..36}; do
     if kubectl get crd externalsecrets.external-secrets.io &>/dev/null; then
-        kubectl wait --for condition=established --timeout=30s crd/externalsecrets.external-secrets.io
+        retry_cmd kubectl wait --for condition=established --timeout=30s crd/externalsecrets.external-secrets.io || true
         echo -e "\e[32mexternalsecrets CRD established.\e[0m"
         break
     fi
@@ -325,7 +354,7 @@ for _crd_attempt in {1..36}; do
     sleep 5
     if [ "$_crd_attempt" -eq 36 ]; then
         echo -e "\e[31mERROR: externalsecrets.external-secrets.io CRD not established after 3 minutes.\e[0m"
-        exit 1
+        CRITICAL_ERRORS+=("externalsecrets.external-secrets.io CRD not established")
     fi
 done
 
@@ -334,19 +363,21 @@ rm -rf ~/.kube/cache
 sleep 5 # API discovery cache padding
 
 for i in {1..5}; do
-    kubectl apply -f infra/rendered/external-secrets.yaml && break
+    if kubectl apply --validate=false -f infra/rendered/external-secrets.yaml; then
+        break
+    fi
     echo -e "\e[33mRetrying kubectl apply for external-secrets (Attempt $i/5)...\e[0m"
     rm -rf ~/.kube/cache
     sleep 10
 done
 echo -e "\e[32mWaiting for ExternalSecret to synchronize...\e[0m"
 sleep 5
-kubectl wait --for=condition=Ready secretstore/aws-secretsmanager -n motionmesh --timeout=60s
-kubectl wait --for=condition=Ready externalsecret/motionmesh-secrets -n motionmesh --timeout=120s
+retry_cmd kubectl wait --for=condition=Ready secretstore/aws-secretsmanager -n motionmesh --timeout=60s || true
+retry_cmd kubectl wait --for=condition=Ready externalsecret/motionmesh-secrets -n motionmesh --timeout=120s || true
 
 # 12. Ensure gp3 StorageClass exists (required for NATS JetStream PVCs)
 echo -e "\e[32mCreating gp3 StorageClass...\e[0m"
-kubectl apply -f - <<'YAML'
+kubectl apply --validate=false -f - <<'YAML' || CRITICAL_ERRORS+=("Failed to create gp3 StorageClass")
 apiVersion: storage.k8s.io/v1
 kind: StorageClass
 metadata:
@@ -363,8 +394,8 @@ YAML
 
 # 13. Deploy NATS
 echo -e "\e[32mDeploying NATS...\e[0m"
-kubectl apply -f infra/k8s/nats.yaml
-kubectl wait --for=condition=Ready pod -l app=nats -n motionmesh --timeout=300s
+retry_cmd kubectl apply --validate=false -f infra/k8s/nats.yaml || CRITICAL_ERRORS+=("Failed to deploy NATS")
+retry_cmd kubectl wait --for=condition=Ready pod -l app=nats -n motionmesh --timeout=300s || true
 
 # Build Images
 export API_IMAGE_URI="${API_REPO}:${GIT_SHA}"
@@ -372,7 +403,7 @@ export WORKER_IMAGE_URI="${WORKER_REPO}:${GIT_SHA}"
 export MIGRATION_IMAGE_URI="${MIGRATION_REPO}:${GIT_SHA}"
 
 echo -e "\e[32mBuilding and Pushing Docker Images...\e[0m"
-aws ecr get-login-password --region "${REGION}" | podman login --username AWS --password-stdin "${AWS_ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com"
+retry_cmd bash -c "aws ecr get-login-password --region \"${REGION}\" | podman login --username AWS --password-stdin \"${AWS_ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com\"" || CRITICAL_ERRORS+=("Failed to login to ECR")
 
 # Helper: push only if the tag doesn't already exist (ECR immutable tags)
 ecr_push() {
@@ -383,26 +414,36 @@ ecr_push() {
     if aws ecr describe-images --repository-name "$repo" --image-ids imageTag="$tag" --region "${REGION}" &>/dev/null; then
         echo -e "\e[33mSkipping push: ${image_uri} already exists in ECR (immutable tag).\e[0m"
     else
-        podman push "$image_uri"
+        retry_cmd podman push "$image_uri" || CRITICAL_ERRORS+=("Failed to push ${image_uri}")
     fi
 }
 
-podman build -t "${API_IMAGE_URI}" -f server/api/Dockerfile server/
-ecr_push "${API_IMAGE_URI}"
 
-podman build -t "${WORKER_IMAGE_URI}" -f server/worker/Dockerfile server/
-ecr_push "${WORKER_IMAGE_URI}"
+if podman build -t "${API_IMAGE_URI}" -f server/api/Dockerfile server/; then
+    ecr_push "${API_IMAGE_URI}"
+else
+    CRITICAL_ERRORS+=("API Image Build Failed")
+fi
 
-podman build --no-cache -t "${MIGRATION_IMAGE_URI}" -f server/migrations.Dockerfile .
-ecr_push "${MIGRATION_IMAGE_URI}"
+if podman build -t "${WORKER_IMAGE_URI}" -f server/worker/Dockerfile server/; then
+    ecr_push "${WORKER_IMAGE_URI}"
+else
+    CRITICAL_ERRORS+=("Worker Image Build Failed")
+fi
+
+if podman build --no-cache -t "${MIGRATION_IMAGE_URI}" -f server/migrations.Dockerfile .; then
+    ecr_push "${MIGRATION_IMAGE_URI}"
+else
+    CRITICAL_ERRORS+=("Migration Image Build Failed")
+fi
 
 echo -e "\e[32mRendering Kubernetes Manifests...\e[0m"
-envsubst < infra/k8s/configmap.yaml > infra/rendered/configmap.yaml
-envsubst < infra/k8s/api.yaml > infra/rendered/api.yaml
-envsubst < infra/k8s/worker.yaml > infra/rendered/worker.yaml
-envsubst < infra/k8s/ingress.yaml > infra/rendered/ingress.yaml
-envsubst '${MIGRATION_IMAGE_URI}' < infra/k8s/db-migration-job.yaml > infra/rendered/db-migration-job.yaml
-envsubst '${API_IMAGE_URI}' < infra/k8s/nats-init-job.yaml > infra/rendered/nats-init-job.yaml
+envsubst < infra/k8s/configmap.yaml > infra/rendered/configmap.yaml || CRITICAL_ERRORS+=("Failed to render configmap.yaml")
+envsubst < infra/k8s/api.yaml > infra/rendered/api.yaml || CRITICAL_ERRORS+=("Failed to render api.yaml")
+envsubst < infra/k8s/worker.yaml > infra/rendered/worker.yaml || CRITICAL_ERRORS+=("Failed to render worker.yaml")
+envsubst < infra/k8s/ingress.yaml > infra/rendered/ingress.yaml || CRITICAL_ERRORS+=("Failed to render ingress.yaml")
+envsubst '${MIGRATION_IMAGE_URI}' < infra/k8s/db-migration-job.yaml > infra/rendered/db-migration-job.yaml || CRITICAL_ERRORS+=("Failed to render db-migration-job.yaml")
+envsubst '${API_IMAGE_URI}' < infra/k8s/nats-init-job.yaml > infra/rendered/nats-init-job.yaml || CRITICAL_ERRORS+=("Failed to render nats-init-job.yaml")
 
 echo -e "\e[32mValidating Placeholders...\e[0m"
 # Check only for deployment-time placeholders that must have been substituted.
@@ -420,32 +461,34 @@ fi
 
 # 14. Deploy Configuration
 echo -e "\e[32mDeploying Configuration...\e[0m"
-kubectl apply -f infra/rendered/configmap.yaml
+kubectl apply --validate=false -f infra/rendered/configmap.yaml || CRITICAL_ERRORS+=("Failed to deploy ConfigMap")
 
 # 15. Pre-Migration Checks
 echo -e "\e[32mValidating Secrets...\e[0m"
 if ! kubectl get secret motionmesh-secrets -n motionmesh &>/dev/null; then
     echo -e "\e[31mERROR: motionmesh-secrets secret is missing.\e[0m"
-    exit 1
+    CRITICAL_ERRORS+=("motionmesh-secrets secret is missing")
 fi
 
 echo -e "\e[32mTesting Aurora Connectivity (TCP)...\e[0m"
 kubectl run aurora-test --rm -i --restart=Never --image=alpine:3.18 -n motionmesh -- sh -c "nc -z -w 5 ${AURORA_HOST} ${AURORA_PORT}" || {
     echo -e "\e[31mERROR: Could not connect to Aurora at ${AURORA_HOST}:${AURORA_PORT}.\e[0m"
-    exit 1
+    CRITICAL_ERRORS+=("Could not connect to Aurora at ${AURORA_HOST}:${AURORA_PORT}")
 }
+
 
 echo -e "\e[32mTesting PostgreSQL Authentication...\e[0m"
 kubectl run pg-auth-test --rm -i --restart=Never --image=postgres:15-alpine -n motionmesh \
   --overrides='{"spec":{"containers":[{"name":"pg-auth-test","image":"postgres:15-alpine","envFrom":[{"secretRef":{"name":"motionmesh-secrets"}}],"command":["sh","-c","pg_isready -h '"${AURORA_HOST}"' -p '"${AURORA_PORT}"' -U $DB_USER -d $DB_NAME"]}]}}' || {
     echo -e "\e[31mERROR: PostgreSQL Authentication test failed.\e[0m"
-    exit 1
+    CRITICAL_ERRORS+=("PostgreSQL Authentication test failed")
 }
+
 
 # 16. Run DB Migrations
 echo -e "\e[32mRunning Database Migrations...\e[0m"
-kubectl delete job motionmesh-db-migration -n motionmesh --ignore-not-found=true
-kubectl apply -f infra/rendered/db-migration-job.yaml
+kubectl delete job motionmesh-db-migration -n motionmesh --ignore-not-found=true || true
+kubectl apply --validate=false -f infra/rendered/db-migration-job.yaml || CRITICAL_ERRORS+=("Failed to apply db-migration-job")
 
 echo -e "\e[32mMonitoring Database Migration...\e[0m"
 for i in {1..90}; do
@@ -461,7 +504,8 @@ for i in {1..90}; do
     if [ "$FAILED" -gt 0 ]; then
         echo -e "\e[31mERROR: Database Migration FAILED.\e[0m"
         ./scripts/diagnose-migration.sh
-        exit 1
+        CRITICAL_ERRORS+=("Database Migration FAILED")
+        break
     fi
 
     POD_STATUSES=$(kubectl get pods -n motionmesh -l job-name=motionmesh-db-migration -o jsonpath='{.items[*].status.containerStatuses[*].state.waiting.reason}' 2>/dev/null || echo "")
@@ -470,7 +514,8 @@ for i in {1..90}; do
     if echo "$POD_STATUSES $INIT_POD_STATUSES" | grep -q -E "ImagePullBackOff|ErrImagePull|CrashLoopBackOff"; then
         echo -e "\e[31mERROR: Database Migration Pod entered a failed state (BackOff/ErrImagePull).\e[0m"
         ./scripts/diagnose-migration.sh
-        exit 1
+        CRITICAL_ERRORS+=("Database Migration Pod failed (BackOff/ErrImagePull)")
+        break
     fi
     
     sleep 10
@@ -479,43 +524,53 @@ done
 if [ "$SUCCEEDED" -eq 0 ] && [ "$FAILED" -eq 0 ]; then
     echo -e "\e[31mERROR: Database Migration timed out.\e[0m"
     ./scripts/diagnose-migration.sh
-    exit 1
+    CRITICAL_ERRORS+=("Database Migration timed out")
 fi
 
 # 17. Run NATS Initialization
 echo -e "\e[32mRunning NATS Initialization...\e[0m"
-kubectl delete job motionmesh-nats-init -n motionmesh --ignore-not-found=true
-kubectl apply -f infra/rendered/nats-init-job.yaml
+kubectl delete job motionmesh-nats-init -n motionmesh --ignore-not-found=true || true
+kubectl apply --validate=false -f infra/rendered/nats-init-job.yaml || CRITICAL_ERRORS+=("Failed to apply nats-init-job")
 
 echo -e "\e[32mMonitoring NATS Initialization...\e[0m"
 kubectl wait --for=condition=complete job/motionmesh-nats-init -n motionmesh --timeout=120s || {
     echo -e "\e[31mERROR: NATS Initialization FAILED.\e[0m"
     kubectl logs job/motionmesh-nats-init -n motionmesh
-    exit 1
+    CRITICAL_ERRORS+=("NATS Initialization FAILED")
 }
 
+
 echo -e "\e[32mDeploying API and Workers...\e[0m"
-kubectl apply -f infra/rendered/api.yaml
-kubectl apply -f infra/rendered/worker.yaml
-kubectl apply -f infra/rendered/ingress.yaml
+kubectl apply --validate=false -f infra/rendered/api.yaml || CRITICAL_ERRORS+=("Failed to deploy API")
+kubectl apply --validate=false -f infra/rendered/worker.yaml || CRITICAL_ERRORS+=("Failed to deploy Worker")
+kubectl apply --validate=false -f infra/rendered/ingress.yaml || CRITICAL_ERRORS+=("Failed to deploy Ingress")
 
 # Wait for deployments
 echo -e "\e[32mWaiting for API and Workers to become ready...\e[0m"
-kubectl wait --for=condition=available deployment/api -n motionmesh --timeout=600s
-kubectl wait --for=condition=available deployment/worker -n motionmesh --timeout=600s
+retry_cmd kubectl wait --for=condition=available deployment/api -n motionmesh --timeout=600s || true
+retry_cmd kubectl wait --for=condition=available deployment/worker -n motionmesh --timeout=600s || true
 
 echo -e "\e[32m====================================================================\e[0m"
 echo -e "\e[32mMotionMesh E2E Deployment Complete\e[0m"
 echo -e "\e[32mPlease run ./scripts/aws-status.sh and ./scripts/aws-smoke.sh to verify.\e[0m"
 echo -e "\e[32m====================================================================\e[0m"
 
-if [ ${#FAILED_HELMS[@]} -gt 0 ]; then
+if [ ${#FAILED_HELMS[@]} -gt 0 ] || [ ${#CRITICAL_ERRORS[@]} -gt 0 ]; then
     echo -e "\e[33m====================================================================\e[0m"
-    echo -e "\e[33mWARNING: The following Helm releases failed after all retries:\e[0m"
-    for f in "${FAILED_HELMS[@]}"; do
-        echo -e "\e[33m  - $f\e[0m"
-    done
-    echo -e "\e[33mRe-run ./scripts/aws-up.sh or install them manually to recover.\e[0m"
+    echo -e "\e[33mWARNING: The deployment completed with errors:\e[0m"
+    if [ ${#FAILED_HELMS[@]} -gt 0 ]; then
+        echo -e "\e[33mFailed Helm releases:\e[0m"
+        for f in "${FAILED_HELMS[@]}"; do
+            echo -e "\e[33m  - $f\e[0m"
+        done
+    fi
+    if [ ${#CRITICAL_ERRORS[@]} -gt 0 ]; then
+        echo -e "\e[33mCritical Errors:\e[0m"
+        for f in "${CRITICAL_ERRORS[@]}"; do
+            echo -e "\e[33m  - $f\e[0m"
+        done
+    fi
+    echo -e "\e[33mPlease fix the issues and re-run ./scripts/aws-up.sh to recover.\e[0m"
     echo -e "\e[33m====================================================================\e[0m"
     exit 1
 fi

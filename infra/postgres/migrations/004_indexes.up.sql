@@ -28,6 +28,3 @@ CREATE INDEX IF NOT EXISTS idx_watermark_metadata_active_account ON watermark_me
 -- usage_events
 CREATE INDEX IF NOT EXISTS idx_usage_events_account_type_created ON usage_events(account_id, event_type, created_at);
 
-
--- analytics_daily
-CREATE INDEX IF NOT EXISTS idx_analytics_daily_video_id_day ON analytics_daily(video_id, day);
