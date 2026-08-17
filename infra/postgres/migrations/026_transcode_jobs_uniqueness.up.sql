@@ -15,8 +15,8 @@ WHERE id IN (
 DO $$
 BEGIN
     IF NOT EXISTS (
-        SELECT 1 FROM pg_constraint WHERE conname = 'idx_transcode_jobs_video_id'
+        SELECT 1 FROM pg_constraint WHERE conname = 'uq_transcode_jobs_video_id'
     ) THEN
-        ALTER TABLE transcode_jobs ADD CONSTRAINT idx_transcode_jobs_video_id UNIQUE (video_id);
+        ALTER TABLE transcode_jobs ADD CONSTRAINT uq_transcode_jobs_video_id UNIQUE (video_id);
     END IF;
 END $$;
