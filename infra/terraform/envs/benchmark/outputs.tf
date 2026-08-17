@@ -26,9 +26,6 @@ output "bucket_region" {
   value = module.s3.bucket_region
 }
 
-output "cloudfront_domain_name" {
-  value = module.cloudfront.cloudfront_domain_name
-}
 
 output "api_repository_url" {
   value = module.ecr_api.repository_url

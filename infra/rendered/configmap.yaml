@@ -6,10 +6,10 @@ metadata:
 data:
   ENVIRONMENT: "benchmark"
   QUEUE_URL: "nats://nats.motionmesh.svc.cluster.local:4222"
-  STORAGE_BUCKET: "motionmesh-assets-benchmark-ap-south-1"
+  STORAGE_BUCKET: "motionmesh-assets-benchmark-ap-south-1-425456324653"
   STORAGE_REGION: "ap-south-1"
-  CLOUDFRONT_DISTRIBUTION_DOMAIN: "d2nh3x9pxqydq9.cloudfront.net"
-  CLOUDFRONT_MEDIA_DOMAIN: ""
+  CLOUDFRONT_DISTRIBUTION_DOMAIN: ""
+  CLOUDFRONT_MEDIA_DOMAIN: "media.motionmesh.co.in"
   COOKIE_DOMAIN: ".motionmesh.co.in"
   CLOUDFRONT_PLAYBACK_TTL: "86400"
   ALLOWED_ORIGINS: "https://app.motionmesh.co.in"

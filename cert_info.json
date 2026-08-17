@@ -1,6 +1,6 @@
 {
     "Certificate": {
-        "CertificateArn": "arn:aws:acm:ap-south-1:718314448702:certificate/51564322-75a2-45bd-9d36-338554c0f367",
+        "CertificateArn": "arn:aws:acm:ap-south-1:425456324653:certificate/51564322-75a2-45bd-9d36-338554c0f367",
         "DomainName": "*.motionmesh.co.in",
         "SubjectAlternativeNames": [
             "*.motionmesh.co.in",

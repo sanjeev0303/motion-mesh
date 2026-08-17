@@ -19,7 +19,7 @@ terraform {
   }
 
   backend "s3" {
-    bucket         = "motionmesh-terraform-state-benchmark"
+    bucket         = "motionmesh-terraform-state-benchmark-425456324653"
     key            = "benchmark/terraform.tfstate"
     region         = "ap-south-1"
     dynamodb_table = "motionmesh-terraform-state-lock-benchmark"

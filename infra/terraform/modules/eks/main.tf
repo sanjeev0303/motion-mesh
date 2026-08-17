@@ -34,11 +34,11 @@ module "eks" {
   eks_managed_node_groups = {
     system = {
       min_size     = 2
-      max_size     = 5
+      max_size     = 3
       desired_size = 2
 
       instance_types = ["m7i-flex.large"]
-      capacity_type  = "ON_DEMAND"
+      capacity_type  = "SPOT"
 
       labels = {
         Environment = var.environment
@@ -47,12 +47,12 @@ module "eks" {
     }
 
     api = {
-      min_size     = 2
-      max_size     = 20
-      desired_size = 2
+      min_size     = 1
+      max_size     = 2
+      desired_size = 1
 
       instance_types = ["m7i-flex.large"]
-      capacity_type  = "ON_DEMAND"
+      capacity_type  = "SPOT"
 
       labels = {
         Environment = var.environment
@@ -61,12 +61,12 @@ module "eks" {
     }
 
     workers = {
-      min_size     = 2
-      max_size     = 50
-      desired_size = 2
+      min_size     = 1
+      max_size     = 2
+      desired_size = 1
 
       instance_types = ["m7i-flex.large"]
-      capacity_type  = "ON_DEMAND"
+      capacity_type  = "SPOT"
 
       labels = {
         Environment = var.environment

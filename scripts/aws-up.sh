@@ -134,8 +134,8 @@ echo -e "\e[32mDeploying Git SHA: $GIT_SHA\e[0m"
 # 2. AWS Identity Check
 echo -e "\e[32mChecking AWS Identity...\e[0m"
 AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text || true)
-if [ "$AWS_ACCOUNT_ID" != "718314448702" ] || [ "$REGION" != "ap-south-1" ]; then
-    echo -e "\e[32mERROR: Identity mismatch. Expected Account 718314448702 and Region ap-south-1.\e[0m"
+if [ "$AWS_ACCOUNT_ID" != "425456324653" ] || [ "$REGION" != "ap-south-1" ]; then
+    echo -e "\e[32mERROR: Identity mismatch. Expected Account 425456324653 and Region ap-south-1.\e[0m"
     exit 1
 fi
 echo -e "\e[32mAWS Account: $AWS_ACCOUNT_ID Region: $REGION\e[0m"
@@ -183,12 +183,9 @@ export REDIS_ENDPOINT=$(echo "$TF_OUT" | jq -r '.redis_endpoint.value // empty')
 export S3_BUCKET_ID=$(echo "$TF_OUT" | jq -r '.bucket_id.value // empty')
 export S3_BUCKET_REGION=$(echo "$TF_OUT" | jq -r '.bucket_region.value // empty')
 export CLOUDFRONT_DISTRIBUTION_DOMAIN=$(echo "$TF_OUT" | jq -r '.cloudfront_domain_name.value // empty')
-export MEDIA_DOMAIN=$(echo "$TF_OUT" | jq -r '.media_domain_name.value // empty')
-export ACM_CERTIFICATE_ARN=$(aws acm list-certificates --region "${REGION}" --query "CertificateSummaryList[?DomainName=='*.motionmesh.co.in'].CertificateArn | [0]" --output text || true)
-if [ "$ACM_CERTIFICATE_ARN" == "None" ] || [ -z "$ACM_CERTIFICATE_ARN" ]; then
-    echo -e "\e[31mERROR: Regional ACM certificate not found in ${REGION}. ALB Ingress requires it.\e[0m"
-    exit 1
-fi
+export CLOUDFRONT_MEDIA_DOMAIN=$(echo "$TF_OUT" | jq -r '.media_domain_name.value // empty')
+export ACM_CERT_ARN="arn:aws:acm:ap-south-1:425456324653:certificate/42ad38fe-6d90-400c-9266-09554f8faebf"
+export ACM_CERTIFICATE_ARN=$ACM_CERT_ARN
 export WAF_ARN=$(echo "$TF_OUT" | jq -r '.web_acl_arn.value // empty')
 export ALB_SG_ID=$(echo "$TF_OUT" | jq -r '.alb_security_group_id.value // empty')
 export API_DOMAIN=$(echo "$TF_OUT" | jq -r '.api_domain_name.value // empty')
@@ -285,30 +282,16 @@ retry_helm_install external-secrets external-secrets external-secrets/external-s
   --set serviceAccount.annotations."eks\.amazonaws\.com/role-arn"="$ESO_ROLE_ARN" \
   || FAILED_HELMS+=(external-secrets)
 
-# external-dns: avoid GitHub CDN by using Bitnami OCI registry (no CDN dependency)
-echo -e "\e[32mInstalling external-dns via Bitnami OCI (CDN-free)...\e[0m"
-if ! helm upgrade --install external-dns \
-    oci://registry-1.docker.io/bitnamicharts/external-dns \
-    --namespace kube-system \
-    --timeout 20m \
-    --disable-openapi-validation \
-    --set provider=aws \
-    --set aws.region="$REGION" \
-    --set serviceAccount.create=true \
-    --set serviceAccount.name=external-dns \
-    --set serviceAccount.annotations."eks\.amazonaws\.com/role-arn"="$EDNS_ROLE_ARN" \
-    --set logLevel=info \
-    2>&1; then
-  echo -e "\e[33mBitnami OCI failed — falling back to k8s-sigs helm repo with retries...\e[0m"
-  retry_helm_install external-dns k8s-sigs-external-dns k8s-sigs-external-dns/external-dns kube-system false \
-    --set provider.name=aws \
-    --set env[0].name=AWS_DEFAULT_REGION \
-    --set env[0].value="$REGION" \
-    --set serviceAccount.create=true \
-    --set serviceAccount.name=external-dns \
-    --set serviceAccount.annotations."eks\.amazonaws\.com/role-arn"="$EDNS_ROLE_ARN" \
-    || FAILED_HELMS+=(external-dns)
-fi
+# external-dns: use official k8s-sigs helm repo
+echo -e "\e[32mInstalling external-dns via k8s-sigs helm repo...\e[0m"
+retry_helm_install external-dns k8s-sigs-external-dns k8s-sigs-external-dns/external-dns kube-system false \
+  --set provider.name=aws \
+  --set env[0].name=AWS_DEFAULT_REGION \
+  --set env[0].value="$REGION" \
+  --set serviceAccount.create=true \
+  --set serviceAccount.name=external-dns \
+  --set serviceAccount.annotations."eks\.amazonaws\.com/role-arn"="$EDNS_ROLE_ARN" \
+  || FAILED_HELMS+=(external-dns)
 
 retry_helm_install prometheus prometheus-community prometheus-community/kube-prometheus-stack monitoring true \
   --set grafana.enabled=false \

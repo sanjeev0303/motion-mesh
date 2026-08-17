@@ -2,7 +2,7 @@
 set -e
 
 REGION="ap-south-1"
-BUCKET_NAME="motionmesh-terraform-state-benchmark"
+BUCKET_NAME="motionmesh-terraform-state-benchmark-425456324653"
 TABLE_NAME="motionmesh-terraform-state-lock-benchmark"
 
 echo -e "\e[32mCreating S3 Bucket: $BUCKET_NAME...\e[0m"

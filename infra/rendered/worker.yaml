@@ -43,7 +43,7 @@ spec:
               topologyKey: kubernetes.io/hostname
       containers:
       - name: worker
-        image: 718314448702.dkr.ecr.ap-south-1.amazonaws.com/motionmesh-worker:6ec02d2
+        image: 425456324653.dkr.ecr.ap-south-1.amazonaws.com/motionmesh-worker:6018b48
         env:
         - name: DB_MAX_CONNS
           valueFrom:

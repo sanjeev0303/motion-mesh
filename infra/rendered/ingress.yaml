@@ -7,13 +7,13 @@ metadata:
     kubernetes.io/ingress.class: alb
     alb.ingress.kubernetes.io/scheme: internet-facing
     alb.ingress.kubernetes.io/target-type: ip
-    alb.ingress.kubernetes.io/certificate-arn: "arn:aws:acm:ap-south-1:718314448702:certificate/51564322-75a2-45bd-9d36-338554c0f367"
-    alb.ingress.kubernetes.io/wafv2-acl-arn: ""
-    alb.ingress.kubernetes.io/security-groups: "sg-03855397b14fd4d50"
-    alb.ingress.kubernetes.io/manage-backend-security-group-rules: "true"
-    alb.ingress.kubernetes.io/healthcheck-path: "/health"
     alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80}, {"HTTPS":443}]'
     alb.ingress.kubernetes.io/ssl-redirect: '443'
+    alb.ingress.kubernetes.io/certificate-arn: ""
+    alb.ingress.kubernetes.io/wafv2-acl-arn: ""
+    alb.ingress.kubernetes.io/security-groups: "sg-080c67b98f2c370c9"
+    alb.ingress.kubernetes.io/manage-backend-security-group-rules: "true"
+    alb.ingress.kubernetes.io/healthcheck-path: "/health"
 spec:
   rules:
     - host: api.motionmesh.co.in

@@ -47,40 +47,12 @@ module "elasticache" {
 module "s3" {
   source               = "../../modules/s3"
   environment          = var.environment
-  bucket_name          = "motionmesh-assets-${var.environment}-ap-south-1"
+  bucket_name          = "motionmesh-assets-${var.environment}-ap-south-1-${data.aws_caller_identity.current.account_id}"
   allowed_cors_origins = var.allowed_cors_origins
 }
 
-module "cloudfront" {
-  source                        = "../../modules/cloudfront"
-  environment                   = var.environment
-  s3_bucket_domain              = module.s3.bucket_domain_name
-  media_domain_name             = var.media_domain_name
-  acm_certificate_arn           = var.acm_certificate_arn
-  route53_zone_id               = var.route53_zone_id
-  cloudfront_signing_public_key = tls_private_key.cloudfront_signing.public_key_pem
-}
 
-data "aws_iam_policy_document" "s3_oac_policy" {
-  statement {
-    actions   = ["s3:GetObject"]
-    resources = ["${module.s3.bucket_arn}/*"]
-    principals {
-      type        = "Service"
-      identifiers = ["cloudfront.amazonaws.com"]
-    }
-    condition {
-      test     = "StringEquals"
-      variable = "AWS:SourceArn"
-      values   = ["arn:aws:cloudfront::${data.aws_caller_identity.current.account_id}:distribution/${module.cloudfront.cloudfront_distribution_id}"]
-    }
-  }
-}
 
-resource "aws_s3_bucket_policy" "oac" {
-  bucket = module.s3.bucket_id
-  policy = data.aws_iam_policy_document.s3_oac_policy.json
-}
 
 module "alb" {
   source      = "../../modules/alb"

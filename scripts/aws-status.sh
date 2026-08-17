@@ -16,7 +16,7 @@ EKS_CLUSTER=$(terraform output -raw cluster_name || echo "Unknown")
 AURORA=$(terraform output -raw aurora_endpoint || echo "Unknown")
 REDIS=$(terraform output -raw redis_endpoint || echo "Unknown")
 S3=$(terraform output -raw bucket_id || echo "Unknown")
-CLOUDFRONT=$(terraform output -raw cloudfront_domain_name || echo "Unknown")
+CLOUDFRONT="Unknown (Disabled)"
 WAF=$(terraform output -raw web_acl_arn || echo "Unknown")
 ROUTE53=$(terraform output -raw api_domain_name || echo "Unknown")
 cd ../../../..

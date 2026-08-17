@@ -42,7 +42,7 @@ node tests/load/k6/validate-data.js || exit 1
 BUNDLE_NAME="benchmark-bundle-$(date +%s).tar.gz"
 echo -e "\e[32mCreating S3 benchmark bundle ${BUNDLE_NAME}...\e[0m"
 tar -czf "${BUNDLE_NAME}" server/ tests/ sdk/ package.json
-aws s3 cp "${BUNDLE_NAME}" "s3://motionmesh-terraform-state-benchmark/${BUNDLE_NAME}"
+aws s3 cp "${BUNDLE_NAME}" "s3://motionmesh-terraform-state-benchmark-425456324653/${BUNDLE_NAME}"
 rm "${BUNDLE_NAME}"
 
 # Create CloudWatch Dashboard
@@ -178,7 +178,7 @@ for i in "${!INSTANCE_ARRAY[@]}"; do
  sudo mkdir -p /opt/motionmesh-benchmark && \
  sudo chown ec2-user:ec2-user /opt/motionmesh-benchmark && \
  cd /opt/motionmesh-benchmark && \
- aws s3 cp s3://motionmesh-terraform-state-benchmark/${BUNDLE_NAME} . --quiet && \
+ aws s3 cp s3://motionmesh-terraform-state-benchmark-425456324653/${BUNDLE_NAME} . --quiet && \
  tar -xzf ${BUNDLE_NAME} && \
  npm install --silent > /dev/null 2>&1 && \
  set +e; \
