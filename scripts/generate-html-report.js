@@ -72,6 +72,19 @@ let ec2Rows = Object.keys(ec2Data.load_generators || ec2Data).filter(id => id !=
     </tr>`;
 }).join('');
 
+let eksRows = Object.keys(ec2Data.eks_nodes || {}).map(id => {
+    const d = ec2Data.eks_nodes[id];
+    if (!d) return '';
+    return `<tr>
+        <td style="font-family:monospace;font-size:0.8rem">${id}</td>
+        <td>${d.group || 'N/A'}</td>
+        <td>${d.type || 'N/A'}</td>
+        <td>${fmtPercent(d.cpu_percent)}</td>
+        <td>${fmtBytes(d.network_in_bytes)}/s</td>
+        <td>${fmtBytes(d.network_out_bytes)}/s</td>
+    </tr>`;
+}).join('');
+
 const html = `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -288,7 +301,7 @@ tbody tr:hover td { background: var(--surface); }
 <!-- INFRASTRUCTURE TAB -->
 <div id="infra" class="container">
   
-  ${Object.keys(ec2Data).length > 0 ? `
+  ${Object.keys(ec2Data.load_generators || ec2Data).filter(id => id !== 'load_generators' && id !== 'eks_nodes').length > 0 ? `
   <div class="section-title">EC2 Load Generators</div>
   <div class="card" style="padding:0">
     <table>
@@ -297,6 +310,16 @@ tbody tr:hover td { background: var(--surface); }
     </table>
   </div>
   ` : '<div class="alert alert-info">EC2 Resource telemetry not available for this run.</div>'}
+
+  ${Object.keys(ec2Data.eks_nodes || {}).length > 0 ? `
+  <div class="section-title">EKS Nodes (API & Workers)</div>
+  <div class="card" style="padding:0">
+    <table>
+      <thead><tr><th>Instance ID</th><th>Role Group</th><th>Type</th><th>CPU Usage</th><th>Net In</th><th>Net Out</th></tr></thead>
+      <tbody>${eksRows}</tbody>
+    </table>
+  </div>
+  ` : ''}
 
   ${dbData.primary ? `
   <div class="section-title">Aurora PostgreSQL (Primary)</div>

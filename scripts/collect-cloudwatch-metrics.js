@@ -24,14 +24,26 @@ function runAWS(command) {
 
 function getMetricStat(namespace, metric, dimensions, stat = 'Average') {
     const dimsStr = dimensions.map(d => `Name=${d.Name},Value=${d.Value}`).join(' ');
-    const cmd = `aws cloudwatch get-metric-statistics --namespace "${namespace}" --metric-name "${metric}" --dimensions ${dimsStr} --start-time "${startTime}" --end-time "${endTime}" --period 60 --statistics ${stat}`;
-    const res = runAWS(cmd);
-    if (!res || !res.Datapoints || res.Datapoints.length === 0) return null;
+    
+    // Expand time window by 5 minutes to ensure we capture Datapoints for 5-minute resolution metrics
+    const expandedStart = new Date(new Date(startTime).getTime() - 5 * 60000).toISOString();
+    const expandedEnd = new Date(new Date(endTime).getTime() + 5 * 60000).toISOString();
+    
+    const cmd = `aws cloudwatch get-metric-statistics --namespace "${namespace}" --metric-name "${metric}" --dimensions ${dimsStr} --start-time "${expandedStart}" --end-time "${expandedEnd}" --period 60 --statistics ${stat}`;
+    let res = runAWS(cmd);
+    
+    if (!res || !res.Datapoints || res.Datapoints.length === 0) {
+        // Fallback to 300s period
+        const cmd300 = `aws cloudwatch get-metric-statistics --namespace "${namespace}" --metric-name "${metric}" --dimensions ${dimsStr} --start-time "${expandedStart}" --end-time "${expandedEnd}" --period 300 --statistics ${stat}`;
+        res = runAWS(cmd300);
+        if (!res || !res.Datapoints || res.Datapoints.length === 0) return null;
+    }
     
     // Sort by timestamp
     res.Datapoints.sort((a, b) => new Date(a.Timestamp) - new Date(b.Timestamp));
     // Calculate aggregate
     const vals = res.Datapoints.map(d => d[stat]);
+    if (stat === 'Maximum') return Math.max(...vals);
     return vals.reduce((a, b) => a + b, 0) / vals.length; // roughly average it over the window
 }
 
@@ -46,9 +58,9 @@ try {
         ec2Data.load_generators = {};
         ec2Data.eks_nodes = {};
         for (const inst of flatList) {
-            const cpu = getMetricStat('AWS/EC2', 'CPUUtilization', [{Name: 'InstanceId', Value: inst.Id}]);
-            const netIn = getMetricStat('AWS/EC2', 'NetworkIn', [{Name: 'InstanceId', Value: inst.Id}]);
-            const netOut = getMetricStat('AWS/EC2', 'NetworkOut', [{Name: 'InstanceId', Value: inst.Id}]);
+            const cpu = getMetricStat('AWS/EC2', 'CPUUtilization', [{Name: 'InstanceId', Value: inst.Id}], 'Maximum');
+            const netIn = getMetricStat('AWS/EC2', 'NetworkIn', [{Name: 'InstanceId', Value: inst.Id}], 'Maximum');
+            const netOut = getMetricStat('AWS/EC2', 'NetworkOut', [{Name: 'InstanceId', Value: inst.Id}], 'Maximum');
             
             let role = 'unknown';
             if (inst.Tags) {
@@ -76,9 +88,9 @@ try {
 // 2. Database Resources
 const dbData = {};
 try {
-    const cpu = getMetricStat('AWS/RDS', 'CPUUtilization', [{Name: 'DBClusterIdentifier', Value: 'motionmesh-aurora'}]) || getMetricStat('AWS/RDS', 'CPUUtilization', [{Name: 'DBInstanceIdentifier', Value: 'motionmesh-db'}]);
-    const mem = getMetricStat('AWS/RDS', 'FreeableMemory', [{Name: 'DBClusterIdentifier', Value: 'motionmesh-aurora'}]) || getMetricStat('AWS/RDS', 'FreeableMemory', [{Name: 'DBInstanceIdentifier', Value: 'motionmesh-db'}]);
-    const conns = getMetricStat('AWS/RDS', 'DatabaseConnections', [{Name: 'DBClusterIdentifier', Value: 'motionmesh-aurora'}]) || getMetricStat('AWS/RDS', 'DatabaseConnections', [{Name: 'DBInstanceIdentifier', Value: 'motionmesh-db'}]);
+    const cpu = getMetricStat('AWS/RDS', 'CPUUtilization', [{Name: 'DBClusterIdentifier', Value: 'motionmesh-aurora'}], 'Maximum') || getMetricStat('AWS/RDS', 'CPUUtilization', [{Name: 'DBInstanceIdentifier', Value: 'motionmesh-db'}], 'Maximum');
+    const mem = getMetricStat('AWS/RDS', 'FreeableMemory', [{Name: 'DBClusterIdentifier', Value: 'motionmesh-aurora'}], 'Average') || getMetricStat('AWS/RDS', 'FreeableMemory', [{Name: 'DBInstanceIdentifier', Value: 'motionmesh-db'}], 'Average');
+    const conns = getMetricStat('AWS/RDS', 'DatabaseConnections', [{Name: 'DBClusterIdentifier', Value: 'motionmesh-aurora'}], 'Maximum') || getMetricStat('AWS/RDS', 'DatabaseConnections', [{Name: 'DBInstanceIdentifier', Value: 'motionmesh-db'}], 'Maximum');
     
     dbData['primary'] = {
         cpu_percent: cpu,
@@ -95,11 +107,11 @@ try {
 // 3. Kubernetes / Redis Resources (Container Insights / ElastiCache)
 const k8sData = {};
 try {
-    const redisCpu = getMetricStat('AWS/ElastiCache', 'EngineCPUUtilization', [{Name: 'CacheClusterId', Value: 'motionmesh-redis'}]);
+    const redisCpu = getMetricStat('AWS/ElastiCache', 'EngineCPUUtilization', [{Name: 'CacheClusterId', Value: 'motionmesh-redis'}], 'Maximum');
     k8sData['redis'] = { cpu_percent: redisCpu };
     
-    const natsCpu = getMetricStat('ContainerInsights', 'pod_cpu_utilization', [{Name: 'ClusterName', Value: 'motionmesh-benchmark'}, {Name: 'Namespace', Value: 'motionmesh'}]); // Note: exact PodName is dynamic, so this might be tricky, or we can use Service or just cluster-wide if possible. Wait, NATS pod name is something like nats-0. Let's just hardcode nats-0 if it's a StatefulSet.
-    const natsMem = getMetricStat('ContainerInsights', 'pod_memory_utilization', [{Name: 'ClusterName', Value: 'motionmesh-benchmark'}, {Name: 'Namespace', Value: 'motionmesh'}]);
+    const natsCpu = getMetricStat('ContainerInsights', 'pod_cpu_utilization', [{Name: 'ClusterName', Value: 'motionmesh-benchmark'}, {Name: 'Namespace', Value: 'motionmesh'}], 'Maximum'); // Note: exact PodName is dynamic, so this might be tricky, or we can use Service or just cluster-wide if possible. Wait, NATS pod name is something like nats-0. Let's just hardcode nats-0 if it's a StatefulSet.
+    const natsMem = getMetricStat('ContainerInsights', 'pod_memory_utilization', [{Name: 'ClusterName', Value: 'motionmesh-benchmark'}, {Name: 'Namespace', Value: 'motionmesh'}], 'Maximum');
     k8sData['nats'] = { cpu_percent: natsCpu, memory_percent: natsMem };
 
     fs.writeFileSync(path.join(resultsDir, 'kubernetes.json'), JSON.stringify(k8sData, null, 2));

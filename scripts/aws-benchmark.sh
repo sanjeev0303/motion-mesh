@@ -355,9 +355,14 @@ for i in "${!INSTANCE_ARRAY[@]}"; do
  tar -xzf ${BUNDLE_NAME} && \
  npm install --silent > /dev/null 2>&1 && \
  set +e; \
- INSTANCE_ID=${INSTANCE} RPS_TIERS=${RPS} DURATION_SEC=${DURATION} MAX_CONCURRENCY=100000 BENCHMARK_MODE=true \
-   node server/scripts/sdk_distributed_benchmark.js > server/scripts/system.log 2>&1; \
- EXIT=\$?; \
+ echo 'while true; do aws s3 cp server/scripts/system.log s3://${REPORT_BUCKET}/report/${TEST_ID}/${INSTANCE}-system-live.log --quiet 2>/dev/null || true; sleep 5; done' > live.sh; \
+ chmod +x live.sh; \
+ ./live.sh >/dev/null 2>&1 & \
+ LIVE_PID=\$!; \
+ INSTANCE_ID=${INSTANCE} RPS_TIERS=${RPS} DURATION_SEC=${DURATION} MAX_CONCURRENCY=100000 BENCHMARK_MODE=true TEST_ID=${TEST_ID} \
+   node server/scripts/sdk_distributed_benchmark.js 2>&1 | tee server/scripts/system.log; \
+ EXIT=\${PIPESTATUS[0]}; \
+ kill \$LIVE_PID 2>/dev/null || true; \
  set -e; \
  aws s3 cp server/scripts/api-calls.log s3://${REPORT_BUCKET}/report/${TEST_ID}/${INSTANCE}-api-calls.log --quiet || true; \
  aws s3 cp server/scripts/system.log s3://${REPORT_BUCKET}/report/${TEST_ID}/${INSTANCE}-system.log --quiet || true; \
@@ -381,11 +386,7 @@ for i in "${!INSTANCE_ARRAY[@]}"; do
     echo "${CMD_ID}" > "tests/load/k6/benchmark-results/${TEST_ID}/.${INSTANCE}.cmd"
 done
 
-echo -e "\e[32mWaiting for all instances to complete execution...\e[0m"
-
-# Stream CloudWatch logs in the background
-aws logs tail "/motionmesh/benchmark" --follow --format short &
-LOG_TAIL_PID=$!
+echo -e "\e[32mStreaming live logs from all instances via S3 (updating every 5s)...\e[0m"
 
 FAILED=0
 NUM_COMPLETED=0
@@ -400,16 +401,61 @@ while [ $NUM_COMPLETED -lt ${GENERATOR_COUNT} ]; do
 
         CMD_ID=$(cat "tests/load/k6/benchmark-results/${TEST_ID}/.${INSTANCE}.cmd")
         
+        # Fetch the live system.log from S3
+        aws s3 cp "s3://${REPORT_BUCKET}/report/${TEST_ID}/${INSTANCE}-system-live.log" "tests/load/k6/benchmark-results/${TEST_ID}/.${INSTANCE}-system.log" --quiet 2>/dev/null || true
+        
+        if [ -f "tests/load/k6/benchmark-results/${TEST_ID}/.${INSTANCE}-system.log" ]; then
+            OLD_FILE="tests/load/k6/benchmark-results/${TEST_ID}/.${INSTANCE}-system.log.old"
+            if [ -f "$OLD_FILE" ]; then
+                OLD_LINES=$(wc -l < "$OLD_FILE")
+                NEW_LINES=$(wc -l < "tests/load/k6/benchmark-results/${TEST_ID}/.${INSTANCE}-system.log")
+                if [ "$NEW_LINES" -gt "$OLD_LINES" ]; then
+                    tail -n +$(( OLD_LINES + 1 )) "tests/load/k6/benchmark-results/${TEST_ID}/.${INSTANCE}-system.log" | sed "s/^/[$INSTANCE] /"
+                fi
+            else
+                cat "tests/load/k6/benchmark-results/${TEST_ID}/.${INSTANCE}-system.log" | sed "s/^/[$INSTANCE] /"
+            fi
+            cp "tests/load/k6/benchmark-results/${TEST_ID}/.${INSTANCE}-system.log" "$OLD_FILE"
+        fi
+        
         STATUS=$(aws ssm list-command-invocations \
             --command-id "${CMD_ID}" --instance-id "${INSTANCE}" \
             --query "CommandInvocations[0].Status" --output text 2>/dev/null || true)
 
         if [ "$STATUS" = "Success" ]; then
+            # Download the final log to catch any remaining lines
+            aws s3 cp "s3://${REPORT_BUCKET}/report/${TEST_ID}/${INSTANCE}-system.log" "tests/load/k6/benchmark-results/${TEST_ID}/.${INSTANCE}-system.log" --quiet 2>/dev/null || true
+            if [ -f "tests/load/k6/benchmark-results/${TEST_ID}/.${INSTANCE}-system.log" ]; then
+                OLD_FILE="tests/load/k6/benchmark-results/${TEST_ID}/.${INSTANCE}-system.log.old"
+                if [ -f "$OLD_FILE" ]; then
+                    OLD_LINES=$(wc -l < "$OLD_FILE")
+                    NEW_LINES=$(wc -l < "tests/load/k6/benchmark-results/${TEST_ID}/.${INSTANCE}-system.log")
+                    if [ "$NEW_LINES" -gt "$OLD_LINES" ]; then
+                        tail -n +$(( OLD_LINES + 1 )) "tests/load/k6/benchmark-results/${TEST_ID}/.${INSTANCE}-system.log" | sed "s/^/[$INSTANCE] /"
+                    fi
+                else
+                    cat "tests/load/k6/benchmark-results/${TEST_ID}/.${INSTANCE}-system.log" | sed "s/^/[$INSTANCE] /"
+                fi
+            fi
+            
             echo -e "\n\e[32m✅ Instance ${INSTANCE} completed successfully.\e[0m"
-            aws s3 cp "s3://${REPORT_BUCKET}/report/${TEST_ID}/${INSTANCE}-result.json" "tests/load/k6/benchmark-results/${TEST_ID}/${INSTANCE}-result.json" 2>/dev/null || true
+            aws s3 cp "s3://${REPORT_BUCKET}/report/${TEST_ID}/${INSTANCE}-result.json" "tests/load/k6/benchmark-results/${TEST_ID}/${INSTANCE}-result.json" --quiet 2>/dev/null || true
             COMPLETED_INSTANCES[$INSTANCE]=1
             NUM_COMPLETED=$((NUM_COMPLETED + 1))
         elif [ "$STATUS" = "Failed" ] || [ "$STATUS" = "DeliveryTimedOut" ] || [ "$STATUS" = "ExecutionTimedOut" ]; then
+            # Attempt to grab any final logs on failure
+            aws s3 cp "s3://${REPORT_BUCKET}/report/${TEST_ID}/${INSTANCE}-system.log" "tests/load/k6/benchmark-results/${TEST_ID}/.${INSTANCE}-system.log" --quiet 2>/dev/null || true
+            if [ -f "tests/load/k6/benchmark-results/${TEST_ID}/.${INSTANCE}-system.log" ]; then
+                OLD_FILE="tests/load/k6/benchmark-results/${TEST_ID}/.${INSTANCE}-system.log.old"
+                if [ -f "$OLD_FILE" ]; then
+                    OLD_LINES=$(wc -l < "$OLD_FILE")
+                    NEW_LINES=$(wc -l < "tests/load/k6/benchmark-results/${TEST_ID}/.${INSTANCE}-system.log")
+                    if [ "$NEW_LINES" -gt "$OLD_LINES" ]; then
+                        tail -n +$(( OLD_LINES + 1 )) "tests/load/k6/benchmark-results/${TEST_ID}/.${INSTANCE}-system.log" | sed "s/^/[$INSTANCE] /"
+                    fi
+                fi
+            fi
+            
             echo -e "\n\e[31m❌ Instance ${INSTANCE} FAILED (${STATUS}).\e[0m"
             FAILED=1
             COMPLETED_INSTANCES[$INSTANCE]=1
@@ -424,8 +470,7 @@ while [ $NUM_COMPLETED -lt ${GENERATOR_COUNT} ]; do
     sleep 5
 done
 
-# Stop log tailing
-kill $LOG_TAIL_PID 2>/dev/null || true
+# No background log tail to kill
 
 if [ "$FAILED" -eq 1 ]; then
     echo -e "\e[32mERROR: Benchmark failed due to instance failure.\e[0m"

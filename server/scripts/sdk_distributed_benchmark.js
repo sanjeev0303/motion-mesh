@@ -113,30 +113,30 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function runOperation() {
+function runOperation() {
   const op = Math.random();
   const clientIdx = Math.floor(Math.random() * clients.length);
   const client = clients[clientIdx];
 
   if (op < 0.4) {
-    return client.videos.list({ limit: 10 });
+    return { apiName: "GET /videos", promise: client.videos.list({ limit: 10 }) };
   }
 
   if (op < 0.6) {
-    return client.buckets.list();
+    return { apiName: "GET /buckets", promise: client.buckets.list() };
   }
 
   const videoId = data.video_ids[clientIdx];
 
   if (op < 0.8) {
-    return client.videos.get(videoId);
+    return { apiName: `GET /videos/${videoId}`, promise: client.videos.get(videoId) };
   }
 
   if (op < 0.9) {
-    return client.videos.playback(videoId);
+    return { apiName: `GET /videos/${videoId}/playback`, promise: client.videos.playback(videoId) };
   }
 
-  return client.mediaConverter.listJobs({ limit: 10 });
+  return { apiName: "GET /media-converter/jobs", promise: client.mediaConverter.listJobs({ limit: 10 }) };
 }
 
 async function runTier(targetRPS) {
@@ -214,24 +214,27 @@ async function runTier(targetRPS) {
       sent++;
 
       const requestStart = performance.now();
+      const { apiName, promise } = runOperation();
 
-      runOperation()
-        .then(() => {
+      promise
+        .then((res) => {
           successful++;
           const latency = (performance.now() - requestStart).toFixed(2);
-          apiCallLogStream.write(`[${new Date().toISOString()}] SUCCESS latency=${latency}ms\n`);
+          const status = res?.status || res?.statusCode || 200;
+          apiCallLogStream.write(`[${new Date().toISOString()}] [${status}] ${apiName} - SUCCESS latency=${latency}ms\n`);
           latencies.add(performance.now() - requestStart);
           if (successful <= 5 || successful % 1000 === 0) {
-            console.log(`[SUCCESS Sample] Request succeeded.`);
+            console.log(`[SUCCESS Sample] [${status}] ${apiName} completed in ${latency}ms`);
           }
         })
         .catch((err) => {
           failed++;
           const latency = (performance.now() - requestStart).toFixed(2);
+          const status = err?.status || err?.statusCode || 500;
           const errMsg = err.message || err.code || err;
-          apiCallLogStream.write(`[${new Date().toISOString()}] ERROR latency=${latency}ms err=${errMsg}\n`);
+          apiCallLogStream.write(`[${new Date().toISOString()}] [${status}] ${apiName} - ERROR latency=${latency}ms err=${errMsg}\n`);
           if (failed <= 50 || failed % 100 === 0) {
-            console.error(`[ERROR Sample] Request failed: ${err.message || err.code || err}`);
+            console.error(`[ERROR Sample] [${status}] ${apiName} failed in ${latency}ms: ${err.message || err.code || err}`);
           }
         })
         .finally(() => {
@@ -277,7 +280,7 @@ async function runTier(targetRPS) {
   const successfulRPS = successful / durationSec;
 
   const report = {
-    test_id: `test-${Date.now()}`,
+    test_id: process.env.TEST_ID || `test-${Date.now()}`,
     instance_id: process.env.INSTANCE_ID || "local",
     target_rps: targetRPS,
     actual_rps: completedRPS,
