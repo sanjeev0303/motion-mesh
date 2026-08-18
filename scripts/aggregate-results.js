@@ -28,6 +28,7 @@ const aggregate = {
     p99_ms: 0
 };
 
+let allLatencies = [];
 let p50Sum = 0;
 let p95Sum = 0;
 let p99Sum = 0;
@@ -47,9 +48,16 @@ for (const file of files) {
             aggregate.duration_seconds = payload.duration_seconds;
         }
 
-        p50Sum += payload.p50_ms;
-        p95Sum += payload.p95_ms;
-        p99Sum += payload.p99_ms;
+        if (Array.isArray(payload.raw_latencies)) {
+            for (let i = 0; i < payload.raw_latencies.length; i++) {
+                allLatencies.push(payload.raw_latencies[i]);
+            }
+        } else {
+            // fallback if not using new sdk wrapper
+            p50Sum += payload.p50_ms;
+            p95Sum += payload.p95_ms;
+            p99Sum += payload.p99_ms;
+        }
 
     } catch (e) {
         console.error(`Failed to parse ${file}: ${e.message}`);
@@ -58,10 +66,21 @@ for (const file of files) {
     }
 }
 
-// Average the percentiles roughly since we don't have the raw histograms
-aggregate.p50_ms = p50Sum / files.length;
-aggregate.p95_ms = p95Sum / files.length;
-aggregate.p99_ms = p99Sum / files.length;
+if (allLatencies.length > 0) {
+    allLatencies.sort((a, b) => a - b);
+    const getPercentile = (p) => {
+        if (!allLatencies.length) return 0;
+        return allLatencies[Math.min(allLatencies.length - 1, Math.floor(allLatencies.length * p))];
+    };
+    aggregate.p50_ms = getPercentile(0.5);
+    aggregate.p95_ms = getPercentile(0.95);
+    aggregate.p99_ms = getPercentile(0.99);
+} else {
+    // Average the percentiles roughly since we don't have the raw histograms
+    aggregate.p50_ms = p50Sum / files.length;
+    aggregate.p95_ms = p95Sum / files.length;
+    aggregate.p99_ms = p99Sum / files.length;
+}
 
 // Compute actual aggregate RPS strictly based on the max coordinated wall-clock duration
 const completed = aggregate.successful + aggregate.failed;

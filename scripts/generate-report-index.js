@@ -41,7 +41,8 @@ for (const key of keys) {
             { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] }
         );
         const d = JSON.parse(raw);
-        const testId = key.split('/')[0];
+        const parts = key.split('/');
+        const testId = parts.length > 1 ? parts[parts.length - 2] : parts[0];
         const total = (d.successful || 0) + (d.failed || 0);
         const successRate = total > 0 ? ((d.successful / total) * 100) : 0;
         runs.push({
@@ -55,7 +56,7 @@ for (const key of keys) {
             successRate,
             duration: d.duration_seconds || 0,
             p95: d.p95_ms || 0,
-            reportUrl: `${baseUrl}/${testId}/index.html`,
+            reportUrl: `${baseUrl}/${key.replace('workload.json', 'index.html')}`,
         });
     } catch { /* skip bad files */ }
 }

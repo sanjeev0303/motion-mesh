@@ -17,7 +17,7 @@ spec:
       restartPolicy: OnFailure
       containers:
         - name: nats-init
-          image: 425456324653.dkr.ecr.ap-south-1.amazonaws.com/motionmesh-api:6018b48
+          image: 425456324653.dkr.ecr.ap-south-1.amazonaws.com/motionmesh-api:a01a3c3
           imagePullPolicy: Always
           command:
             - /app/nats-init

@@ -76,41 +76,18 @@ for workload_file in tests/load/k6/benchmark-results/test-*/workload.json; do
     fi
 done
 
-node -e "
-const fs = require('fs');
-const path = require('path');
-const load = (f) => { try { return JSON.parse(fs.readFileSync(path.join('${LATEST_TEST}', f), 'utf8')); } catch { return {}; } };
-const ec2 = load('ec2-resources.json');
-const db = load('database-resources.json');
-const k8s = load('kubernetes.json');
-const wk = load('workload.json');
+cat << 'EOF' >> "${REPORT_FILE}"
 
-const getCpu = (data) => data && typeof data.cpu_percent === 'number' ? data.cpu_percent.toFixed(1) + '%' : 'N/A';
-const getConns = (data) => data && typeof data.database_connections === 'number' ? data.database_connections : 'N/A';
+## Current Known Bottlenecks
+- NOT_MEASURED
 
-const eksNodesCpu = Object.values(ec2.eks_nodes || {}).map(n => n.cpu_percent).filter(x => typeof x === 'number');
-const eksAvgCpu = eksNodesCpu.length ? (eksNodesCpu.reduce((a,b) => a+b, 0) / eksNodesCpu.length).toFixed(1) + '%' : 'N/A';
-
-const lgNodesCpu = Object.values(ec2.load_generators || {}).map(n => n.cpu_percent).filter(x => typeof x === 'number');
-const lgAvgCpu = lgNodesCpu.length ? (lgNodesCpu.reduce((a,b) => a+b, 0) / lgNodesCpu.length).toFixed(1) + '%' : 'N/A';
-
-const bottlenecks = [];
-if (db.primary && db.primary.cpu_percent > 80) bottlenecks.push('- Aurora PostgreSQL is under high load.');
-if (k8s.redis && k8s.redis.cpu_percent > 80) bottlenecks.push('- ElastiCache Redis is under high load.');
-if (eksAvgCpu !== 'N/A' && parseFloat(eksAvgCpu) > 80) bottlenecks.push('- EKS Nodes are under high CPU load. Scaling required.');
-if (lgAvgCpu !== 'N/A' && parseFloat(lgAvgCpu) > 80) bottlenecks.push('- Load Generators are saturated.');
-if ((wk.dropped || 0) > (wk.successful || 1) * 0.05) bottlenecks.push('- High client-side request drop rate (concurrency limits hit).');
-
-let out = '\n## Current Known Bottlenecks\n';
-out += bottlenecks.length ? bottlenecks.join('\n') : '- No critical bottlenecks identified at this load level.';
-
-out += '\n\n## Infrastructure Health\n';
-out += '- **EKS Nodes**: CPU ' + eksAvgCpu + '\n';
-out += '- **Aurora PostgreSQL**: CPU ' + getCpu(db.primary) + ' | Conns: ' + getConns(db.primary) + '\n';
-out += '- **ElastiCache Redis**: CPU ' + getCpu(k8s.redis) + '\n';
-out += '- **NATS JetStream**: CPU ' + getCpu(k8s.nats) + '\n';
-out += '- **Load Generators**: CPU ' + lgAvgCpu + '\n';
-fs.appendFileSync('${REPORT_FILE}', out);
-"
+## Infrastructure Health
+- **EKS API Nodes**: NOT_MEASURED
+- **EKS Worker Nodes**: NOT_MEASURED
+- **Aurora PostgreSQL**: NOT_MEASURED
+- **ElastiCache Redis**: NOT_MEASURED
+- **NATS JetStream**: NOT_MEASURED
+- **Load Generators**: NOT_MEASURED
+EOF
 
 echo -e "\e[32mReport generated at ${REPORT_FILE}\e[0m"

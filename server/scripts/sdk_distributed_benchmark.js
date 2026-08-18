@@ -148,6 +148,9 @@ async function runTier(targetRPS) {
   let dropped = 0;
   let inFlight = 0;
 
+  const apiLogFile = path.join(__dirname, "api-calls.log");
+  fs.writeFileSync(apiLogFile, ""); // Clear previous logs
+  const apiCallLogStream = fs.createWriteStream(apiLogFile, { flags: 'a' });
   const latencies = new ReservoirSampler();
   const startedAt = performance.now();
   const elHistogram = require('perf_hooks').monitorEventLoopDelay({ resolution: 10 });
@@ -207,6 +210,8 @@ async function runTier(targetRPS) {
       runOperation()
         .then(() => {
           successful++;
+          const latency = (performance.now() - requestStart).toFixed(2);
+          apiCallLogStream.write(`[${new Date().toISOString()}] SUCCESS latency=${latency}ms\n`);
           latencies.add(performance.now() - requestStart);
           if (successful <= 5 || successful % 1000 === 0) {
             console.log(`[SUCCESS Sample] Request succeeded.`);
@@ -214,6 +219,9 @@ async function runTier(targetRPS) {
         })
         .catch((err) => {
           failed++;
+          const latency = (performance.now() - requestStart).toFixed(2);
+          const errMsg = err.message || err.code || err;
+          apiCallLogStream.write(`[${new Date().toISOString()}] ERROR latency=${latency}ms err=${errMsg}\n`);
           if (failed <= 50 || failed % 100 === 0) {
             console.error(`[ERROR Sample] Request failed: ${err.message || err.code || err}`);
           }
@@ -252,6 +260,8 @@ async function runTier(targetRPS) {
   const drainSec = ((performance.now() - dispatchEndedAt) / 1000).toFixed(1);
   console.log(`[Drain complete] ${drainSec}s drain time.`);
 
+  apiCallLogStream.end();
+
   elHistogram.disable();
   const offeredRPS = sent / durationSec;
   const completed = successful + failed;
@@ -271,6 +281,7 @@ async function runTier(targetRPS) {
     p50_ms: latencies.getPercentile(0.5),
     p95_ms: latencies.getPercentile(0.95),
     p99_ms: latencies.getPercentile(0.99),
+    raw_latencies: latencies.reservoir,
     cpu: process.cpuUsage(),
     memory: process.memoryUsage(),
     network: {},

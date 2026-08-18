@@ -119,12 +119,110 @@ DASHBOARD_JSON=$(cat << 'EOF'
             "height": 6,
             "properties": {
                 "metrics": [
-                    [ "AWS/RDS", "CPUUtilization", "DBInstanceIdentifier", "motionmesh-benchmark" ]
+                    [ { "expression": "SEARCH('{AWS/RDS,DBInstanceIdentifier} MetricName=\"CPUUtilization\"', 'Average', 60)", "id": "e1" } ],
+                    [ { "expression": "SEARCH('{AWS/RDS,DBInstanceIdentifier} MetricName=\"DatabaseConnections\"', 'Average', 60)", "id": "e2" } ],
+                    [ { "expression": "SEARCH('{AWS/RDS,DBInstanceIdentifier} MetricName=\"FreeableMemory\"', 'Average', 60)", "id": "e3" } ]
                 ],
-                "view": "timeSeries",
-                "stacked": false,
+                "view": "bar",
                 "region": "REGION_PLACEHOLDER",
-                "title": "Aurora CPU Utilization",
+                "title": "Aurora RDS Utilization",
+                "period": 60,
+                "stat": "Average"
+            }
+        },
+        {
+            "type": "metric",
+            "x": 0,
+            "y": 12,
+            "width": 8,
+            "height": 6,
+            "properties": {
+                "metrics": [
+                    [ { "expression": "SEARCH('{AWS/EC2,InstanceId} MetricName=\"CPUUtilization\"', 'Average', 60)", "id": "e1" } ]
+                ],
+                "view": "bar",
+                "region": "REGION_PLACEHOLDER",
+                "title": "EC2 Instances CPU %",
+                "period": 60,
+                "stat": "Average"
+            }
+        },
+        {
+            "type": "metric",
+            "x": 8,
+            "y": 12,
+            "width": 8,
+            "height": 6,
+            "properties": {
+                "metrics": [
+                    [ { "expression": "SEARCH('{AWS/EC2,InstanceId} MetricName=\"NetworkIn\"', 'Average', 60)", "id": "e1" } ],
+                    [ { "expression": "SEARCH('{AWS/EC2,InstanceId} MetricName=\"NetworkOut\"', 'Average', 60)", "id": "e2" } ]
+                ],
+                "view": "bar",
+                "region": "REGION_PLACEHOLDER",
+                "title": "EC2 Instances Network",
+                "period": 60,
+                "stat": "Average"
+            }
+        },
+        {
+            "type": "metric",
+            "x": 16,
+            "y": 12,
+            "width": 8,
+            "height": 6,
+            "properties": {
+                "metrics": [
+                    [ { "expression": "SEARCH('{AWS/EBS,VolumeId} MetricName=\"VolumeReadBytes\"', 'Average', 60)", "id": "e1" } ],
+                    [ { "expression": "SEARCH('{AWS/EBS,VolumeId} MetricName=\"VolumeWriteBytes\"', 'Average', 60)", "id": "e2" } ]
+                ],
+                "view": "bar",
+                "region": "REGION_PLACEHOLDER",
+                "title": "EC2 Storage (EBS I/O)",
+                "period": 60,
+                "stat": "Average"
+            }
+        },
+        {
+            "type": "metric",
+            "x": 0,
+            "y": 18,
+            "width": 12,
+            "height": 6,
+            "properties": {
+                "metrics": [
+                    [ { "expression": "SEARCH('{AWS/ElastiCache,CacheClusterId} MetricName=\"EngineCPUUtilization\"', 'Maximum', 60)", "id": "e1" } ],
+                    [ { "expression": "SEARCH('{AWS/ElastiCache,CacheClusterId} MetricName=\"DatabaseMemoryUsagePercentage\"', 'Maximum', 60)", "id": "e2" } ],
+                    [ { "expression": "SEARCH('{AWS/ElastiCache,CacheClusterId} MetricName=\"NetworkBytesIn\"', 'Average', 60)", "id": "e3" } ]
+                ],
+                "view": "gauge",
+                "region": "REGION_PLACEHOLDER",
+                "title": "Redis (ElastiCache) Utilization",
+                "period": 60,
+                "stat": "Maximum",
+                "yAxis": {
+                    "left": {
+                        "min": 0,
+                        "max": 100
+                    }
+                }
+            }
+        },
+        {
+            "type": "metric",
+            "x": 12,
+            "y": 18,
+            "width": 12,
+            "height": 6,
+            "properties": {
+                "metrics": [
+                    [ { "expression": "SEARCH('{ContainerInsights,ClusterName,Namespace,PodName} Namespace=\"motionmesh\" PodName=\"nats\" MetricName=\"pod_cpu_utilization\"', 'Average', 60)", "id": "e1" } ],
+                    [ { "expression": "SEARCH('{ContainerInsights,ClusterName,Namespace,PodName} Namespace=\"motionmesh\" PodName=\"nats\" MetricName=\"pod_memory_utilization\"', 'Average', 60)", "id": "e2" } ],
+                    [ { "expression": "SEARCH('{ContainerInsights,ClusterName,Namespace,PodName} Namespace=\"motionmesh\" PodName=\"nats\" MetricName=\"pod_network_rx_bytes\"', 'Average', 60)", "id": "e3" } ]
+                ],
+                "view": "bar",
+                "region": "REGION_PLACEHOLDER",
+                "title": "NATS Pod Utilization",
                 "period": 60,
                 "stat": "Average"
             }
@@ -143,16 +241,45 @@ echo -e "\e[34m📈 Benchmark Dashboard URL:\e[0m \e[4m${DASHBOARD_URL}\e[0m"
 echo -e "\e[32mDiscovering Load Generators...\e[0m"
 INSTANCE_IDS=$(aws ec2 describe-instances --filters "Name=tag:Role,Values=LoadGenerator" "Name=instance-state-name,Values=running" --query "Reservations[*].Instances[*].InstanceId" --output text)
 
-if [ -z "${INSTANCE_IDS}" ]; then
-    echo -e "\e[32mERROR: No running Load Generators found!\e[0m"
+GENERATOR_COUNT=0
+if [ -n "${INSTANCE_IDS}" ] && [ "${INSTANCE_IDS}" != "None" ]; then
+    read -r -a INSTANCE_ARRAY <<< "$INSTANCE_IDS"
+    GENERATOR_COUNT=${#INSTANCE_ARRAY[@]}
+fi
+
+# Assuming each generator can handle 2500 RPS max comfortably
+REQUIRED_GENERATORS=$(( (TARGET_RPS + 2499) / 2500 ))
+if [ "${REQUIRED_GENERATORS}" -lt 2 ]; then REQUIRED_GENERATORS=2; fi
+
+if [ "${GENERATOR_COUNT}" -lt "${REQUIRED_GENERATORS}" ]; then
+    NEEDED=$(( REQUIRED_GENERATORS - GENERATOR_COUNT ))
+    echo -e "\e[32mTarget RPS (${TARGET_RPS}) requires ${REQUIRED_GENERATORS} generators, but only ${GENERATOR_COUNT} are running.\e[0m"
+    ./scripts/aws-provision-generators.sh "${NEEDED}"
+    echo -e "\e[32mWaiting 60s for new instances to initialize and register with SSM...\e[0m"
+    sleep 60
+    INSTANCE_IDS=$(aws ec2 describe-instances --filters "Name=tag:Role,Values=LoadGenerator" "Name=instance-state-name,Values=running" --query "Reservations[*].Instances[*].InstanceId" --output text)
+    read -r -a INSTANCE_ARRAY <<< "$INSTANCE_IDS"
+    GENERATOR_COUNT=${#INSTANCE_ARRAY[@]}
+fi
+
+if [ "${GENERATOR_COUNT}" -eq 0 ]; then
+    echo -e "\e[31mERROR: Failed to provision or discover any Load Generators.\e[0m"
     exit 1
 fi
 
-# Convert string of IDs to array
-read -r -a INSTANCE_ARRAY <<< "$INSTANCE_IDS"
-GENERATOR_COUNT=${#INSTANCE_ARRAY[@]}
-
 echo -e "\e[32mFound ${GENERATOR_COUNT} Load Generator(s): ${INSTANCE_IDS}\e[0m"
+
+# EKS Nodegroup Scaling
+EKS_NODES_NEEDED=$(( (TARGET_RPS + 1999) / 2000 ))
+if [ "${EKS_NODES_NEEDED}" -lt 2 ]; then EKS_NODES_NEEDED=2; fi
+
+echo -e "\e[32mTarget RPS (${TARGET_RPS}) requires ~${EKS_NODES_NEEDED} EKS nodes. Adjusting EKS Nodegroups if needed...\e[0m"
+API_NODEGROUPS=$(aws eks list-nodegroups --cluster-name motionmesh-benchmark --query "nodegroups[?starts_with(@, 'api-') || starts_with(@, 'workers-')]" --output text 2>/dev/null || true)
+if [ -n "$API_NODEGROUPS" ] && [ "$API_NODEGROUPS" != "None" ]; then
+    for NG in $API_NODEGROUPS; do
+        aws eks update-nodegroup-config --cluster-name motionmesh-benchmark --nodegroup-name "$NG" --scaling-config desiredSize=$EKS_NODES_NEEDED,maxSize=$((EKS_NODES_NEEDED * 2)) >/dev/null 2>&1 || true
+    done
+fi
 
 # Distribute load (Floor division + remainder distribution)
 BASE_RPS=$(( TARGET_RPS / GENERATOR_COUNT ))
@@ -160,6 +287,7 @@ REMAINDER=$(( TARGET_RPS % GENERATOR_COUNT ))
 
 echo -e "\e[32mDistributing load...\e[0m"
 TEST_ID="test-$(date +%s)"
+START_TIME_ISO=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 mkdir -p "tests/load/k6/benchmark-results/${TEST_ID}"
 
 echo -e "\e[32mEnsuring CloudWatch log group '/motionmesh/benchmark' exists...\e[0m"
@@ -186,8 +314,9 @@ for i in "${!INSTANCE_ARRAY[@]}"; do
    node server/scripts/sdk_distributed_benchmark.js; \
  EXIT=\$?; \
  set -e; \
+ aws s3 cp server/scripts/api-calls.log s3://${REPORT_BUCKET}/report/${TEST_ID}/${INSTANCE}-api-calls.log --quiet || true; \
  if [ \$EXIT -eq 0 ]; then \
-   aws s3 cp server/scripts/result.json s3://${REPORT_BUCKET}/${TEST_ID}/${INSTANCE}-result.json; \
+   aws s3 cp server/scripts/result.json s3://${REPORT_BUCKET}/report/${TEST_ID}/${INSTANCE}-result.json --quiet; \
  else \
    echo 'BENCHMARK_FAILED'; \
    exit 1; \
@@ -230,7 +359,7 @@ while [ $NUM_COMPLETED -lt ${GENERATOR_COUNT} ]; do
 
         if [ "$STATUS" = "Success" ]; then
             echo -e "\n\e[32m✅ Instance ${INSTANCE} completed successfully.\e[0m"
-            aws s3 cp "s3://${REPORT_BUCKET}/${TEST_ID}/${INSTANCE}-result.json" "tests/load/k6/benchmark-results/${TEST_ID}/${INSTANCE}-result.json" 2>/dev/null || true
+            aws s3 cp "s3://${REPORT_BUCKET}/report/${TEST_ID}/${INSTANCE}-result.json" "tests/load/k6/benchmark-results/${TEST_ID}/${INSTANCE}-result.json" 2>/dev/null || true
             COMPLETED_INSTANCES[$INSTANCE]=1
             NUM_COMPLETED=$((NUM_COMPLETED + 1))
         elif [ "$STATUS" = "Failed" ] || [ "$STATUS" = "DeliveryTimedOut" ] || [ "$STATUS" = "ExecutionTimedOut" ]; then
@@ -257,14 +386,16 @@ if [ "$FAILED" -eq 1 ]; then
 fi
 
 echo -e "\e[32mAll generators finished. Aggregating results...\e[0m"
+END_TIME_ISO=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+node scripts/collect-cloudwatch-metrics.js "tests/load/k6/benchmark-results/${TEST_ID}" "${START_TIME_ISO}" "${END_TIME_ISO}"
 node scripts/aggregate-results.js "tests/load/k6/benchmark-results/${TEST_ID}"
 
 echo -e "\e[32mGenerating HTML report...\e[0m"
 node scripts/generate-html-report.js "tests/load/k6/benchmark-results/${TEST_ID}"
 
 echo -e "\e[32mUploading HTML report and data to S3...\e[0m"
-aws s3 cp "tests/load/k6/benchmark-results/${TEST_ID}/report.html" "s3://${REPORT_BUCKET}/${TEST_ID}/index.html" --content-type "text/html"
-aws s3 cp "tests/load/k6/benchmark-results/${TEST_ID}/workload.json" "s3://${REPORT_BUCKET}/${TEST_ID}/workload.json" --content-type "application/json"
+aws s3 cp "tests/load/k6/benchmark-results/${TEST_ID}/report.html" "s3://${REPORT_BUCKET}/report/${TEST_ID}/index.html" --content-type "text/html"
+aws s3 cp "tests/load/k6/benchmark-results/${TEST_ID}/workload.json" "s3://${REPORT_BUCKET}/report/${TEST_ID}/workload.json" --content-type "application/json"
 
 echo -e "\e[32mUpdating benchmark index page...\e[0m"
 INDEX_TMP=$(mktemp /tmp/benchmark-index-XXXXXX.html)

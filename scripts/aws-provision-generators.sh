@@ -1,7 +1,8 @@
 #!/bin/bash
 set -euo pipefail
 
-echo "Provisioning 4 Load Generator Instances..."
+COUNT=${1:-4}
+echo "Provisioning ${COUNT} Load Generator Instances..."
 
 # Get latest Amazon Linux 2023 AMI
 AMI_ID=$(aws ssm get-parameters --names /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-6.1-x86_64 --query 'Parameters[0].Value' --output text)
@@ -36,7 +37,7 @@ sleep 10
 aws ec2 run-instances \
     --image-id "$AMI_ID" \
     --instance-type t3.micro \
-    --count 4 \
+    --count "${COUNT}" \
     --subnet-id "$SUBNET_ID" \
     --security-group-ids "$SG_ID" \
     --associate-public-ip-address \
