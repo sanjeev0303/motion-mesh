@@ -14,8 +14,8 @@ func Connect(dataSourceName string) (*sql.DB, error) {
 		return nil, fmt.Errorf("error opening db: %w", err)
 	}
 
-	db.SetMaxOpenConns(15)
-	db.SetMaxIdleConns(15)
+	db.SetMaxOpenConns(150)
+	db.SetMaxIdleConns(150)
 	db.SetConnMaxLifetime(5 * time.Minute)
 
 	if err := db.Ping(); err != nil {

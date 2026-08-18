@@ -36,7 +36,7 @@ sleep 10
 aws ec2 run-instances \
     --image-id "$AMI_ID" \
     --instance-type t3.micro \
-    --count 2 \
+    --count 4 \
     --subnet-id "$SUBNET_ID" \
     --security-group-ids "$SG_ID" \
     --associate-public-ip-address \

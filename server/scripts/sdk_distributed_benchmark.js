@@ -29,7 +29,7 @@ const TIERS = (process.env.RPS_TIERS || "1000,5000,10000,16667,20000")
 const DURATION_SEC = Math.max(1, parseInt(process.env.DURATION_SEC || "30", 10));
 const MAX_CONCURRENCY = Math.max(
   1,
-  parseInt(process.env.MAX_CONCURRENCY || "2000", 10)
+  parseInt(process.env.MAX_CONCURRENCY || "10000", 10)
 );
 const CLIENT_TYPE = "sdk";
 
