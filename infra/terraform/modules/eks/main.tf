@@ -48,7 +48,7 @@ module "eks" {
 
     api = {
       min_size     = 1
-      max_size     = 2
+      max_size     = 10
       desired_size = 1
 
       instance_types = ["m7i-flex.large"]
@@ -62,7 +62,7 @@ module "eks" {
 
     workers = {
       min_size     = 1
-      max_size     = 2
+      max_size     = 10
       desired_size = 1
 
       instance_types = ["m7i-flex.large"]

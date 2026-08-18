@@ -7,7 +7,7 @@ metadata:
     app: nats
 spec:
   serviceName: "nats"
-  replicas: 2
+  replicas: 1
   selector:
     matchLabels:
       app: nats
@@ -52,10 +52,6 @@ spec:
           - "$(POD_NAME)"
           - "--cluster_name"
           - "motionmesh-nats"
-          - "--cluster"
-          - "nats://0.0.0.0:6222"
-          - "--routes"
-          - "nats://nats-0.nats.motionmesh.svc.cluster.local:6222,nats://nats-1.nats.motionmesh.svc.cluster.local:6222"
         env:
           - name: POD_NAME
             valueFrom:
