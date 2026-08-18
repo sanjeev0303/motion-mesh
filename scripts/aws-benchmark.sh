@@ -258,9 +258,13 @@ echo -e "\e[34m📈 Benchmark Dashboard URL:\e[0m \e[4m${DASHBOARD_URL}\e[0m"
 # Identify Load Generators
 echo -e "\e[32mDiscovering Load Generators...\e[0m"
 
-# Assuming each generator can handle 2500 RPS max comfortably
-REQUIRED_GENERATORS=$(( (TARGET_RPS + 2499) / 2500 ))
+# Assuming each generator (m5.xlarge) can handle 5000 RPS max comfortably
+REQUIRED_GENERATORS=$(( (TARGET_RPS + 4999) / 5000 ))
 if [ "${REQUIRED_GENERATORS}" -lt 2 ]; then REQUIRED_GENERATORS=2; fi
+if [ "${REQUIRED_GENERATORS}" -gt 2 ]; then 
+    echo -e "\e[33mWarning: AWS Account vCPU limit is likely 8. Capping at 2 load generators.\e[0m"
+    REQUIRED_GENERATORS=2
+fi
 
 INSTANCE_IDS=$(aws ec2 describe-instances --filters "Name=tag:Role,Values=LoadGenerator" "Name=instance-state-name,Values=running" --query "Reservations[*].Instances[*].InstanceId" --output text)
 
