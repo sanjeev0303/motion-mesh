@@ -20,6 +20,14 @@ const fs = require("fs");
 const path = require("path");
 const { performance } = require("perf_hooks");
 
+const { setGlobalDispatcher, Agent } = require("undici");
+setGlobalDispatcher(
+  new Agent({
+    connections: 10000,
+    pipelining: 10
+  })
+);
+
 const DATA_PATH = path.join(__dirname, "../../tests/load/k6/data.json");
 const TIERS = (process.env.RPS_TIERS || "1000,5000,10000,16667,20000")
   .split(",")

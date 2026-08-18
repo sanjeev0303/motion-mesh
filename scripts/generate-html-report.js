@@ -56,7 +56,7 @@ const instanceRows = instances.map(inst => {
         <td>${fmt(inst.p50_ms)}ms</td>
         <td style="color:${p95Color}">${fmt(inst.p95_ms)}ms</td>
         <td>${fmt(inst.duration_seconds)}s</td>
-        <td><a href="https://motionmesh-benchmark-reports-425456324653.s3.ap-south-1.amazonaws.com/report/${data.test_id}/${inst.instance_id}-api-calls.log" target="_blank" style="color:var(--primary);text-decoration:none">📥 Log</a></td>
+        <td><a href="https://motionmesh-benchmark-reports-425456324653.s3.ap-south-1.amazonaws.com/report/${data.test_id}/${inst.instance_id}-api-calls.log" target="_blank" style="color:var(--primary);text-decoration:none">📥 API</a> | <a href="https://motionmesh-benchmark-reports-425456324653.s3.ap-south-1.amazonaws.com/report/${data.test_id}/${inst.instance_id}-system.log" target="_blank" style="color:var(--primary);text-decoration:none">📥 Sys</a></td>
     </tr>`;
 }).join('');
 
@@ -335,7 +335,7 @@ tbody tr:hover td { background: var(--surface); }
       <thead><tr>
         <th>Instance ID</th><th>Target RPS</th><th>Actual RPS</th>
         <th>Successful</th><th>Failed</th><th>Success Rate</th>
-        <th>P50</th><th>P95</th><th>Duration</th><th>API Logs</th>
+        <th>P50</th><th>P95</th><th>Duration</th><th>Diagnostics</th>
       </tr></thead>
       <tbody>${instanceRows}</tbody>
     </table>

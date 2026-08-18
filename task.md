@@ -55,3 +55,4 @@
   - [x] Remove CDN pages, docs, navigation links, and metrics from dashboard
   - [x] Remove CDN sections from README.md and SDK docs
 - [x] Update MotionMesh Benchmark auto-scaling to scale EKS `api` and `workers` nodes and store logs correctly inside `report` folder on S3
+- [x] Fix load generator provisioning script to respect vCPU limits and IAM profiles

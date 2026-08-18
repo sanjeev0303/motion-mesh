@@ -16,12 +16,17 @@ if [ -z "$SUBNET_ID" ] || [ "$SUBNET_ID" == "None" ]; then
 fi
 
 # Create IAM Role and Instance Profile for SSM
-aws iam create-role --role-name MotionMeshLoadGeneratorRole --assume-role-policy-document '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"Service":"ec2.amazonaws.com"},"Action":"sts:AssumeRole"}]}' || true
-aws iam attach-role-policy --role-name MotionMeshLoadGeneratorRole --policy-arn arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore || true
-aws iam attach-role-policy --role-name MotionMeshLoadGeneratorRole --policy-arn arn:aws:iam::aws:policy/AmazonS3FullAccess || true
-aws iam attach-role-policy --role-name MotionMeshLoadGeneratorRole --policy-arn arn:aws:iam::aws:policy/CloudWatchAgentServerPolicy || true
-aws iam create-instance-profile --instance-profile-name MotionMeshLoadGeneratorProfile || true
-aws iam add-role-to-instance-profile --instance-profile-name MotionMeshLoadGeneratorProfile --role-name MotionMeshLoadGeneratorRole || true
+if ! aws iam get-role --role-name MotionMeshLoadGeneratorRole >/dev/null 2>&1; then
+    aws iam create-role --role-name MotionMeshLoadGeneratorRole --assume-role-policy-document '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"Service":"ec2.amazonaws.com"},"Action":"sts:AssumeRole"}]}' || true
+    aws iam attach-role-policy --role-name MotionMeshLoadGeneratorRole --policy-arn arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore || true
+    aws iam attach-role-policy --role-name MotionMeshLoadGeneratorRole --policy-arn arn:aws:iam::aws:policy/AmazonS3FullAccess || true
+    aws iam attach-role-policy --role-name MotionMeshLoadGeneratorRole --policy-arn arn:aws:iam::aws:policy/CloudWatchAgentServerPolicy || true
+fi
+
+if ! aws iam get-instance-profile --instance-profile-name MotionMeshLoadGeneratorProfile >/dev/null 2>&1; then
+    aws iam create-instance-profile --instance-profile-name MotionMeshLoadGeneratorProfile || true
+    aws iam add-role-to-instance-profile --instance-profile-name MotionMeshLoadGeneratorProfile --role-name MotionMeshLoadGeneratorRole || true
+fi
 
 VPC_ID=$(aws ec2 describe-subnets --subnet-ids "$SUBNET_ID" --query "Subnets[0].VpcId" --output text)
 SG_ID=$(aws ec2 describe-security-groups --filters "Name=group-name,Values=MotionMeshLoadGeneratorSG" "Name=vpc-id,Values=$VPC_ID" --query "SecurityGroups[0].GroupId" --output text 2>/dev/null || echo "None")
@@ -36,7 +41,7 @@ sleep 10
 
 aws ec2 run-instances \
     --image-id "$AMI_ID" \
-    --instance-type t3.micro \
+    --instance-type m5.xlarge \
     --count "${COUNT}" \
     --subnet-id "$SUBNET_ID" \
     --security-group-ids "$SG_ID" \
@@ -44,7 +49,7 @@ aws ec2 run-instances \
     --iam-instance-profile Name=MotionMeshLoadGeneratorProfile \
     --tag-specifications 'ResourceType=instance,Tags=[{Key=Name,Value=MotionMesh-LoadGenerator},{Key=Role,Value=LoadGenerator}]' \
     --user-data "#!/bin/bash
-yum install -y nodejs npm tar gzip amazon-ssm-agent
+yum install -y nodejs22 nodejs22-npm tar gzip amazon-ssm-agent
 systemctl enable amazon-ssm-agent
 systemctl start amazon-ssm-agent"
 

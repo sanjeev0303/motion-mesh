@@ -123,11 +123,17 @@ DASHBOARD_JSON=$(cat << 'EOF'
                     [ { "expression": "SEARCH('{AWS/RDS,DBInstanceIdentifier} MetricName=\"DatabaseConnections\"', 'Average', 60)", "id": "e2" } ],
                     [ { "expression": "SEARCH('{AWS/RDS,DBInstanceIdentifier} MetricName=\"FreeableMemory\"', 'Average', 60)", "id": "e3" } ]
                 ],
-                "view": "bar",
+                "view": "gauge",
                 "region": "REGION_PLACEHOLDER",
                 "title": "Aurora RDS Utilization",
                 "period": 60,
-                "stat": "Average"
+                "stat": "Average",
+                "yAxis": {
+                    "left": {
+                        "min": 0,
+                        "max": 100
+                    }
+                }
             }
         },
         {
@@ -140,11 +146,17 @@ DASHBOARD_JSON=$(cat << 'EOF'
                 "metrics": [
                     [ { "expression": "SEARCH('{AWS/EC2,InstanceId} MetricName=\"CPUUtilization\"', 'Average', 60)", "id": "e1" } ]
                 ],
-                "view": "bar",
+                "view": "gauge",
                 "region": "REGION_PLACEHOLDER",
                 "title": "EC2 Instances CPU %",
                 "period": 60,
-                "stat": "Average"
+                "stat": "Average",
+                "yAxis": {
+                    "left": {
+                        "min": 0,
+                        "max": 100
+                    }
+                }
             }
         },
         {
@@ -220,11 +232,17 @@ DASHBOARD_JSON=$(cat << 'EOF'
                     [ { "expression": "SEARCH('{ContainerInsights,ClusterName,Namespace,PodName} Namespace=\"motionmesh\" PodName=\"nats\" MetricName=\"pod_memory_utilization\"', 'Average', 60)", "id": "e2" } ],
                     [ { "expression": "SEARCH('{ContainerInsights,ClusterName,Namespace,PodName} Namespace=\"motionmesh\" PodName=\"nats\" MetricName=\"pod_network_rx_bytes\"', 'Average', 60)", "id": "e3" } ]
                 ],
-                "view": "bar",
+                "view": "gauge",
                 "region": "REGION_PLACEHOLDER",
                 "title": "NATS Pod Utilization",
                 "period": 60,
-                "stat": "Average"
+                "stat": "Average",
+                "yAxis": {
+                    "left": {
+                        "min": 0,
+                        "max": 100
+                    }
+                }
             }
         }
     ]
@@ -239,17 +257,44 @@ echo -e "\e[34m📈 Benchmark Dashboard URL:\e[0m \e[4m${DASHBOARD_URL}\e[0m"
 
 # Identify Load Generators
 echo -e "\e[32mDiscovering Load Generators...\e[0m"
-INSTANCE_IDS=$(aws ec2 describe-instances --filters "Name=tag:Role,Values=LoadGenerator" "Name=instance-state-name,Values=running" --query "Reservations[*].Instances[*].InstanceId" --output text)
-
-GENERATOR_COUNT=0
-if [ -n "${INSTANCE_IDS}" ] && [ "${INSTANCE_IDS}" != "None" ]; then
-    read -r -a INSTANCE_ARRAY <<< "$INSTANCE_IDS"
-    GENERATOR_COUNT=${#INSTANCE_ARRAY[@]}
-fi
 
 # Assuming each generator can handle 2500 RPS max comfortably
 REQUIRED_GENERATORS=$(( (TARGET_RPS + 2499) / 2500 ))
 if [ "${REQUIRED_GENERATORS}" -lt 2 ]; then REQUIRED_GENERATORS=2; fi
+
+INSTANCE_IDS=$(aws ec2 describe-instances --filters "Name=tag:Role,Values=LoadGenerator" "Name=instance-state-name,Values=running" --query "Reservations[*].Instances[*].InstanceId" --output text)
+
+GENERATOR_COUNT=0
+if [ -n "${INSTANCE_IDS}" ] && [ "${INSTANCE_IDS}" != "None" ]; then
+    INSTANCE_ARRAY=($INSTANCE_IDS)
+    GENERATOR_COUNT=${#INSTANCE_ARRAY[@]}
+fi
+
+if [ "${GENERATOR_COUNT}" -lt "${REQUIRED_GENERATORS}" ]; then
+    NEEDED=$(( REQUIRED_GENERATORS - GENERATOR_COUNT ))
+    
+    STOPPED_IDS=$(aws ec2 describe-instances --filters "Name=tag:Role,Values=LoadGenerator" "Name=instance-state-name,Values=stopped" --query "Reservations[*].Instances[*].InstanceId" --output text)
+    if [ -n "${STOPPED_IDS}" ] && [ "${STOPPED_IDS}" != "None" ]; then
+        STOPPED_ARRAY=($STOPPED_IDS)
+        TO_START=${#STOPPED_ARRAY[@]}
+        if [ "$TO_START" -gt "$NEEDED" ]; then
+            TO_START=$NEEDED
+        fi
+        START_LIST=("${STOPPED_ARRAY[@]:0:$TO_START}")
+        
+        echo -e "\e[32mStarting ${TO_START} stopped Load Generators...\e[0m"
+        aws ec2 start-instances --instance-ids ${START_LIST[@]} >/dev/null
+        echo -e "\e[32mWaiting 45s for stopped instances to boot...\e[0m"
+        sleep 45
+        
+        # Refresh running count
+        INSTANCE_IDS=$(aws ec2 describe-instances --filters "Name=tag:Role,Values=LoadGenerator" "Name=instance-state-name,Values=running" --query "Reservations[*].Instances[*].InstanceId" --output text)
+        if [ -n "${INSTANCE_IDS}" ] && [ "${INSTANCE_IDS}" != "None" ]; then
+            INSTANCE_ARRAY=($INSTANCE_IDS)
+            GENERATOR_COUNT=${#INSTANCE_ARRAY[@]}
+        fi
+    fi
+fi
 
 if [ "${GENERATOR_COUNT}" -lt "${REQUIRED_GENERATORS}" ]; then
     NEEDED=$(( REQUIRED_GENERATORS - GENERATOR_COUNT ))
@@ -258,7 +303,7 @@ if [ "${GENERATOR_COUNT}" -lt "${REQUIRED_GENERATORS}" ]; then
     echo -e "\e[32mWaiting 60s for new instances to initialize and register with SSM...\e[0m"
     sleep 60
     INSTANCE_IDS=$(aws ec2 describe-instances --filters "Name=tag:Role,Values=LoadGenerator" "Name=instance-state-name,Values=running" --query "Reservations[*].Instances[*].InstanceId" --output text)
-    read -r -a INSTANCE_ARRAY <<< "$INSTANCE_IDS"
+    INSTANCE_ARRAY=($INSTANCE_IDS)
     GENERATOR_COUNT=${#INSTANCE_ARRAY[@]}
 fi
 
@@ -310,15 +355,17 @@ for i in "${!INSTANCE_ARRAY[@]}"; do
  tar -xzf ${BUNDLE_NAME} && \
  npm install --silent > /dev/null 2>&1 && \
  set +e; \
- INSTANCE_ID=${INSTANCE} RPS_TIERS=${RPS} DURATION_SEC=${DURATION} MAX_CONCURRENCY=10000 BENCHMARK_MODE=true \
-   node server/scripts/sdk_distributed_benchmark.js; \
+ INSTANCE_ID=${INSTANCE} RPS_TIERS=${RPS} DURATION_SEC=${DURATION} MAX_CONCURRENCY=100000 BENCHMARK_MODE=true \
+   node server/scripts/sdk_distributed_benchmark.js > server/scripts/system.log 2>&1; \
  EXIT=\$?; \
  set -e; \
  aws s3 cp server/scripts/api-calls.log s3://${REPORT_BUCKET}/report/${TEST_ID}/${INSTANCE}-api-calls.log --quiet || true; \
+ aws s3 cp server/scripts/system.log s3://${REPORT_BUCKET}/report/${TEST_ID}/${INSTANCE}-system.log --quiet || true; \
  if [ \$EXIT -eq 0 ]; then \
    aws s3 cp server/scripts/result.json s3://${REPORT_BUCKET}/report/${TEST_ID}/${INSTANCE}-result.json --quiet; \
  else \
    echo 'BENCHMARK_FAILED'; \
+   cat server/scripts/system.log; \
    exit 1; \
  fi"
     
@@ -403,7 +450,7 @@ node scripts/generate-report-index.js "${REPORT_BUCKET}" "${REGION}" "${INDEX_TM
 aws s3 cp "${INDEX_TMP}" "s3://${REPORT_BUCKET}/index.html" --content-type "text/html"
 rm -f "${INDEX_TMP}"
 
-PUBLIC_URL="https://${REPORT_BUCKET}.s3.${REGION}.amazonaws.com/${TEST_ID}/index.html"
+PUBLIC_URL="https://${REPORT_BUCKET}.s3.${REGION}.amazonaws.com/report/${TEST_ID}/index.html"
 INDEX_URL="https://${REPORT_BUCKET}.s3.${REGION}.amazonaws.com/index.html"
 echo -e "\e[32mBenchmark completed: tests/load/k6/benchmark-results/${TEST_ID}\e[0m"
 echo -e "\e[34m🌐 This Run Report:\e[0m \e[4m${PUBLIC_URL}\e[0m"

@@ -60,7 +60,7 @@
         "node": ">=18"
     },
     "dependencies": {
-        "undici": "^6.19.2"
+        "undici": "^8.10.0"
     },
     "devDependencies": {
         "@types/node": "^25.3.3",

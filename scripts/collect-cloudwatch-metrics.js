@@ -23,8 +23,8 @@ function runAWS(command) {
 }
 
 function getMetricStat(namespace, metric, dimensions, stat = 'Average') {
-    const dimsStr = dimensions.map(d => `Name=${d.Name},Value=${d.Value}`).join(',');
-    const cmd = `aws cloudwatch get-metric-statistics --namespace "${namespace}" --metric-name "${metric}" --dimensions "${dimsStr}" --start-time "${startTime}" --end-time "${endTime}" --period 60 --statistics ${stat}`;
+    const dimsStr = dimensions.map(d => `Name=${d.Name},Value=${d.Value}`).join(' ');
+    const cmd = `aws cloudwatch get-metric-statistics --namespace "${namespace}" --metric-name "${metric}" --dimensions ${dimsStr} --start-time "${startTime}" --end-time "${endTime}" --period 60 --statistics ${stat}`;
     const res = runAWS(cmd);
     if (!res || !res.Datapoints || res.Datapoints.length === 0) return null;
     
